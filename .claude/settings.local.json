@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(Get-ChildItem *)",
-      "Bash(pip show *)",
-      "Bash(gh *)"
-    ]
-  }
-}
