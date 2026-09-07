@@ -1,0 +1,28 @@
+# Documentación privada
+documentacion/
+
+# Entornos virtuales
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Modelos y Datasets (estos se generan en runtime)
+models/*.pkl
+models/*.json
+custom_dataset/*.json
+
+# IDEs y OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Configuración local
+camera_config.json

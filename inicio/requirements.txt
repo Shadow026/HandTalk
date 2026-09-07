@@ -1,0 +1,11 @@
+# Vision y deteccion de manos
+opencv-python>=4.8.0
+mediapipe==0.10.14
+
+# Machine Learning clasico (clasificador de landmarks)
+scikit-learn>=1.3.0
+joblib>=1.3.0
+numpy>=1.24.0
+
+# Interfaz grafica
+Pillow>=10.0.0
