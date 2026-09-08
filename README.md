@@ -2,27 +2,55 @@
 
 Este proyecto implementa un sistema de reconocimiento de lenguaje de señas donde el usuario define sus propias palabras y gestos. El sistema utiliza landmarks de MediaPipe para garantizar una alta precisión independientemente de la iluminación o el fondo.
 
-## ⚙️ Guía de Configuración del Entorno
+## ⚡ Instalación Rápida y Automática (Recomendado)
 
-Para evitar errores de compatibilidad (especialmente con MediaPipe), sigue estos pasos estrictamente.
+HandTalk incluye instaladores automatizados con menús interactivos que detectan versiones compatibles de Python (3.10, 3.11, 3.12), configuran el entorno virtual `venv`, instalan dependencias y crean atajos globales en tu terminal.
+
+### 🐧 En GNU/Linux (Bash)
+Ejecuta en la terminal desde la carpeta raíz del proyecto:
+```bash
+chmod +x install.sh
+./install.sh
+```
+
+### 🪟 En Microsoft Windows (PowerShell)
+Abre PowerShell en la carpeta raíz del proyecto y ejecuta:
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\install.ps1
+```
+
+> **Atajos de Terminal Generados:**
+> Tras la instalación, podrás usar los siguientes comandos desde cualquier terminal sin necesidad de activar manualmente el `venv`:
+> - `handtalk-captura` ➔ Abre la interfaz gráfica para recolectar señas.
+> - `handtalk-entrenar` ➔ Entrena el modelo clasificador.
+> - `handtalk-traducir` ➔ Inicia la traducción en tiempo real con cámara.
+
+---
+
+## ⚙️ Guía de Configuración Manual del Entorno
+
+Si prefieres configurar el entorno manualmente:
 
 ### 1. Requisitos de Python
-El proyecto es compatible con **Python 3.10, 3.11 y 3.12**. 
-⚠️ **IMPORTANTE**: No utilices versiones experimentales como Python 3.13 o 3.14, ya que las librerías de visión artificial aún no son compatibles.
+El proyecto requiere **Python 3.10, 3.11 o 3.12**.
+⚠️ **IMPORTANTE**: No utilices versiones como Python 3.13 o 3.14, ya que MediaPipe 0.10.14 no posee soporte para estas versiones.
 
-### 2. Instalación Paso a Paso (Windows)
+### 2. Instalación Manual Paso a Paso (Windows / Linux)
 
 Abre una terminal en la carpeta raíz del proyecto y ejecuta:
 
-```powershell
-# 1. Crear el entorno virtual
-python -m venv venv
+```bash
+# 1. Crear el entorno virtual (usando Python 3.10-3.12)
+python3.11 -m venv venv   # En Linux
+py -3.11 -m venv venv     # En Windows
 
 # 2. Activar el entorno virtual
-.\\venv\\Scripts\\activate
+source venv/bin/activate       # En Linux
+.\venv\Scripts\Activate.ps1    # En Windows
 
-# 3. Actualizar pip para evitar errores de instalación
-python -m pip install --upgrade pip
+# 3. Actualizar pip
+pip install --upgrade pip setuptools wheel
 
 # 4. Instalar las dependencias fijadas
 pip install -r inicio/requirements.txt
