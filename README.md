@@ -16,7 +16,11 @@ chmod +x install.sh
 ### 🪟 En Microsoft Windows (PowerShell)
 Abre PowerShell en la carpeta raíz del proyecto y ejecuta:
 ```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+*(O si ya estás dentro de una sesión de PowerShell)*:
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 .\install.ps1
 ```
 

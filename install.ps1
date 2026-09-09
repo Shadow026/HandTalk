@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # HandTalk - Instalador y Gestor de Entorno Automatizado (Microsoft Windows)
 # ==============================================================================
 # Repositorio: HandTalk
@@ -12,11 +12,34 @@
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1
 # ==============================================================================
 
-# Configuración de codificación de salida a UTF-8 para visualización de caracteres Unicode
+# Configuración de codificación de consola para visualización correcta
+try {
+    chcp.com 65001 | Out-Null
+} catch { }
+
 try {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    if ([Console]::InputEncoding) {
+        [Console]::InputEncoding = [System.Text.Encoding]::UTF8
+    }
     $OutputEncoding = [System.Text.Encoding]::UTF8
 } catch { }
+
+# Definición segura de caracteres Unicode para marcos y símbolos (evita fallos de tokenizado ANSI en PowerShell 5.1)
+$Script:ChH   = [char]0x2500  # Horizontal box line
+$Script:ChV   = [char]0x2502  # Vertical box line
+$Script:ChTL  = [char]0x250C  # Top-left corner
+$Script:ChTR  = [char]0x2510  # Top-right corner
+$Script:ChBL  = [char]0x2514  # Bottom-left corner
+$Script:ChBR  = [char]0x2518  # Bottom-right corner
+$Script:ChML  = [char]0x251C  # Middle-left divider
+$Script:ChMR  = [char]0x2524  # Middle-right divider
+$Script:ChDot = [char]0x2022  # Bullet
+$Script:ChArr = [char]0x2192  # Arrow
+$Script:ChOk  = [char]0x2713  # Check
+$Script:ChErr = [char]0x2717  # Cross
+$Script:ChWrn = [char]0x26A0  # Warning
+$Script:ChInf = [char]0x2139  # Info
 
 # Variables de rutas del proyecto
 $Script:ProjectRoot = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
@@ -78,20 +101,20 @@ function Write-Centered {
 }
 
 function Write-BoxTop {
-    $border = "─" * 64
-    $line = "┌$border┐"
+    $border = "$($Script:ChH)" * 64
+    $line = "$($Script:ChTL)$border$($Script:ChTR)"
     Write-Centered -Text $line -ForegroundColor Cyan
 }
 
 function Write-BoxSep {
-    $border = "─" * 64
-    $line = "├$border┤"
+    $border = "$($Script:ChH)" * 64
+    $line = "$($Script:ChML)$border$($Script:ChMR)"
     Write-Centered -Text $line -ForegroundColor Cyan
 }
 
 function Write-BoxBottom {
-    $border = "─" * 64
-    $line = "└$border┘"
+    $border = "$($Script:ChH)" * 64
+    $line = "$($Script:ChBL)$border$($Script:ChBR)"
     Write-Centered -Text $line -ForegroundColor Cyan
 }
 
@@ -128,13 +151,13 @@ function Write-BoxRow {
     $outerSpaces = " " * $boxPad
 
     Write-Host "$outerSpaces" -NoNewline
-    Write-Host "│" -ForegroundColor Cyan -NoNewline
+    Write-Host "$($Script:ChV)" -ForegroundColor Cyan -NoNewline
     if ($ForegroundColor -ne "") {
         Write-Host "$content" -ForegroundColor $ForegroundColor -NoNewline
     } else {
         Write-Host "$content" -NoNewline
     }
-    Write-Host "│" -ForegroundColor Cyan
+    Write-Host "$($Script:ChV)" -ForegroundColor Cyan
 }
 
 # --- Banners Visuales ---
@@ -150,14 +173,14 @@ function Show-HeaderBanner {
     Write-BoxRow "  |_| |_/_/   \_\_| \_|____/ |_/_/   \_\_____|_|\_\             " "center" "White"
     Write-BoxRow "                                                                " "center" "White"
     Write-BoxRow "        Sistema de Reconocimiento y Traducción de Señas         " "center" "Yellow"
-    Write-BoxRow "        MediaPipe 0.10.14  •  OpenCV  •  Scikit-Learn           " "center" "DarkGray"
+    Write-BoxRow "        MediaPipe 0.10.14  $($Script:ChDot)  OpenCV  $($Script:ChDot)  Scikit-Learn           " "center" "DarkGray"
     Write-BoxBottom
     Write-Centered ""
 }
 
 function Show-MainMenu {
     Write-BoxTop
-    Write-BoxRow "MENÚ PRINCIPAL DE GESTIÓN (WINDOWS)" "center" "White"
+    Write-BoxRow "MENU PRINCIPAL DE GESTION (WINDOWS)" "center" "White"
     Write-BoxSep
     Write-BoxRow "" "center" "White"
     Write-BoxRow "[1]  Instalación Completa  (Entorno + Dependencias + Atajos)" "left" "Green"
@@ -221,9 +244,10 @@ function Find-CompatiblePython {
     foreach ($cmd in $cmdCandidates) {
         try {
             $cmdObj = Get-Command $cmd -ErrorAction SilentlyContinue
-            if ($cmdObj -and $cmdObj.Source) {
+            if ($cmdObj) {
+                $cmdExe = if ($cmdObj.Path) { $cmdObj.Path } elseif ($cmdObj.Source) { $cmdObj.Source } else { $cmd }
                 $code = "import sys; print(f'{sys.version_info.major} {sys.version_info.minor} {sys.executable}')"
-                $res = & $cmdObj.Source -c $code 2>$null
+                $res = & $cmdExe -c $code 2>$null
                 if ($LASTEXITCODE -eq 0 -and $res) {
                     $parts = ($res -split '\s+').Trim()
                     if ($parts.Length -ge 3) {
@@ -241,6 +265,42 @@ function Find-CompatiblePython {
                 }
             }
         } catch { }
+    }
+
+    # 3. Probar rutas comunes de instalación en Windows (si no están añadidas al PATH)
+    $commonDirs = @(
+        "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python310\python.exe",
+        "C:\Python312\python.exe",
+        "C:\Python311\python.exe",
+        "C:\Python310\python.exe",
+        "$env:ProgramFiles\Python312\python.exe",
+        "$env:ProgramFiles\Python311\python.exe",
+        "$env:ProgramFiles\Python310\python.exe"
+    )
+    foreach ($candExe in $commonDirs) {
+        if (Test-Path $candExe) {
+            try {
+                $code = "import sys; print(f'{sys.version_info.major} {sys.version_info.minor} {sys.executable}')"
+                $res = & $candExe -c $code 2>$null
+                if ($LASTEXITCODE -eq 0 -and $res) {
+                    $parts = ($res -split '\s+').Trim()
+                    if ($parts.Length -ge 3) {
+                        $maj = [int]$parts[0]
+                        $min = [int]$parts[1]
+                        $exe = $parts[2..($parts.Length-1)] -join ' '
+                        if ($maj -eq 3 -and ($min -ge 10 -and $min -le 12) -and (Test-Path $exe)) {
+                            return @{
+                                Executable = $exe
+                                Version = "3.$min"
+                                Source = "Ruta estándar ($exe)"
+                            }
+                        }
+                    }
+                }
+            } catch { }
+        }
     }
 
     return $null
@@ -334,7 +394,7 @@ function Remove-CliShortcuts {
 function Start-Installation {
     Show-HeaderBanner
     Write-BoxTop
-    Write-BoxRow "PROCESO DE INSTALACIÓN COMPLETA (WINDOWS)" "center" "White"
+    Write-BoxRow "PROCESO DE INSTALACION COMPLETA (WINDOWS)" "center" "White"
     Write-BoxBottom
     Write-Centered ""
 
@@ -345,16 +405,16 @@ function Start-Installation {
     if (-not $pyInfo) {
         Write-Centered ""
         Write-BoxTop
-        Write-BoxRow "✗ ERROR: VERSIÓN DE PYTHON NO COMPATIBLE" "center" "Red"
+        Write-BoxRow "$($Script:ChErr) ERROR: VERSION DE PYTHON NO COMPATIBLE" "center" "Red"
         Write-BoxSep
         Write-BoxRow "MediaPipe 0.10.14 requiere Python 3.10, 3.11 o 3.12." "center" "White"
         Write-BoxRow "Python 3.13+ o <3.10 NO poseen compatibilidad de wheels." "center" "Yellow"
         Write-BoxRow "" "center" "White"
         Write-BoxRow "Opciones recomendadas para Windows:" "left" "Cyan"
-        Write-BoxRow "  • winget install -e --id Python.Python.3.11" "left_tight" "White"
-        Write-BoxRow "  • Descargar instalador de Python 3.11 desde python.org:" "left_tight" "White"
+        Write-BoxRow "  $($Script:ChDot) winget install -e --id Python.Python.3.11" "left_tight" "White"
+        Write-BoxRow "  $($Script:ChDot) Descargar instalador de Python 3.11 desde python.org:" "left_tight" "White"
         Write-BoxRow "    https://www.python.org/downloads/release/python-3119/" "left_tight" "DarkGray"
-        Write-BoxRow "  • Recuerde marcar: 'Add python.exe to PATH'." "left_tight" "Yellow"
+        Write-BoxRow "  $($Script:ChDot) Recuerde marcar: 'Add python.exe to PATH'." "left_tight" "Yellow"
         Write-BoxBottom
         Wait-Enter
         return
@@ -362,44 +422,45 @@ function Start-Installation {
 
     $pythonExe = $pyInfo.Executable
     $pythonVer = $pyInfo.Version
-    Write-Centered "      ✓ Localizado: $pythonExe (v$pythonVer)" "Green"
+    Write-Centered "      $($Script:ChOk) Localizado: $pythonExe (v$pythonVer)" "Green"
     Write-Centered ""
 
     # 2. Creación del entorno virtual (venv)
     Write-Centered "[2/5] Configurando entorno virtual en: .\venv" "Cyan"
     if (Test-Path $Script:VenvDir) {
-        Write-Centered "      ⚠ Ya existe un entorno virtual previo." "Yellow"
+        Write-Centered "      $($Script:ChWrn) Ya existe un entorno virtual previo." "Yellow"
         Prompt-Centered "¿Desea recrearlo desde cero? [s/N]: " "White"
         $recreate = [System.Console]::ReadLine()
+        if ($null -eq $recreate) { $recreate = "" }
         if ($recreate -match '^[sSyY]') {
             Write-Centered "      Eliminando entorno anterior..." "DarkGray"
             Remove-Item -Path $Script:VenvDir -Recurse -Force
-            & $pythonExe -m venv $Script:VenvDir *>$Script:LogFile
+            & $pythonExe -m venv $Script:VenvDir *>"$Script:LogFile"
         } else {
-            Write-Centered "      ℹ Conservando entorno virtual existente." "Cyan"
+            Write-Centered "      $($Script:ChInf) Conservando entorno virtual existente." "Cyan"
         }
     } else {
-        & $pythonExe -m venv $Script:VenvDir *>$Script:LogFile
+        & $pythonExe -m venv $Script:VenvDir *>"$Script:LogFile"
     }
 
     $venvPython = Join-Path $Script:VenvDir "Scripts\python.exe"
     $venvPip = Join-Path $Script:VenvDir "Scripts\pip.exe"
 
     if (-not (Test-Path $venvPython)) {
-        Write-Centered "      ✗ Error al generar entorno virtual. Revise $Script:LogFile" "Red"
+        Write-Centered "      $($Script:ChErr) Error al generar entorno virtual. Revise $Script:LogFile" "Red"
         Wait-Enter
         return
     }
-    Write-Centered "      ✓ Entorno virtual preparado con éxito." "Green"
+    Write-Centered "      $($Script:ChOk) Entorno virtual preparado con éxito." "Green"
     Write-Centered ""
 
     # 3. Actualización de pip, setuptools y wheel
     Write-Centered "[3/5] Actualizando pip, setuptools y wheel..." "Cyan"
-    & $venvPython -m pip install --upgrade pip setuptools wheel *>>$Script:LogFile
+    & $venvPython -m pip install --upgrade pip setuptools wheel *>>"$Script:LogFile"
     if ($LASTEXITCODE -ne 0) {
-        Write-Centered "      ⚠ Advertencia al actualizar pip; continuando..." "Yellow"
+        Write-Centered "      $($Script:ChWrn) Advertencia al actualizar pip; continuando..." "Yellow"
     } else {
-        Write-Centered "      ✓ Gestores de paquetes actualizados." "Green"
+        Write-Centered "      $($Script:ChOk) Gestores de paquetes actualizados." "Green"
     }
     Write-Centered ""
 
@@ -407,11 +468,11 @@ function Start-Installation {
     Write-Centered "[4/5] Instalando dependencias desde inicio\requirements.txt..." "Cyan"
     Write-Centered "      (Esto puede tomar unos momentos según la conexión de red)" "DarkGray"
 
-    & $venvPip install -r $Script:RequirementsFile *>>$Script:LogFile
+    & $venvPip install -r $Script:RequirementsFile *>>"$Script:LogFile"
     if ($LASTEXITCODE -ne 0) {
         Write-Centered ""
         Write-BoxTop
-        Write-BoxRow "✗ ERROR AL INSTALAR DEPENDENCIAS" "center" "Red"
+        Write-BoxRow "$($Script:ChErr) ERROR AL INSTALAR DEPENDENCIAS" "center" "Red"
         Write-BoxSep
         Write-BoxRow "Hubo un problema al descargar o compilar las librerías." "center" "White"
         Write-BoxRow "Consulte los detalles en el archivo de registro:" "center" "DarkGray"
@@ -420,13 +481,13 @@ function Start-Installation {
         Wait-Enter
         return
     }
-    Write-Centered "      ✓ Dependencias instaladas correctamente." "Green"
+    Write-Centered "      $($Script:ChOk) Dependencias instaladas correctamente." "Green"
     Write-Centered ""
 
     # 5. Creación de Atajos CLI
     Write-Centered "[5/5] Generando atajos de terminal en $Script:BinDir..." "Cyan"
     Create-CliShortcuts -VenvPython $venvPython
-    Write-Centered "      ✓ Atajos creados (.bat) y agregados al PATH del usuario." "Green"
+    Write-Centered "      $($Script:ChOk) Atajos creados (.bat) y agregados al PATH del usuario." "Green"
     Write-Centered ""
 
     # 6. Verificación Post-Instalación (Smoke Test)
@@ -434,21 +495,21 @@ function Start-Installation {
     $smokeCode = "import cv2, mediapipe, sklearn, PIL, numpy; print('OK')"
     $smokeOut = & $venvPython -c $smokeCode 2>$null
     if ($smokeOut -eq "OK") {
-        Write-Centered "      ✓ Todas las librerías clave importadas correctamente." "Green"
+        Write-Centered "      $($Script:ChOk) Todas las librerías clave importadas correctamente." "Green"
     } else {
-        Write-Centered "      ⚠ Advertencia: Verifique los módulos en $Script:LogFile" "Yellow"
+        Write-Centered "      $($Script:ChWrn) Advertencia: Verifique los módulos en $Script:LogFile" "Yellow"
     }
     Write-Centered ""
 
     # Resumen de instalación
     Write-BoxTop
-    Write-BoxRow "¡INSTALACIÓN COMPLETADA CON ÉXITO!" "center" "Green"
+    Write-BoxRow "¡INSTALACION COMPLETADA CON EXITO!" "center" "Green"
     Write-BoxSep
     Write-BoxRow "Ya puede invocar HandTalk directamente desde CMD o PowerShell:" "center" "White"
     Write-BoxRow "" "center" "White"
-    Write-BoxRow "  1. handtalk-captura   → Captura y recolección de señas" "left_tight" "Cyan"
-    Write-BoxRow "  2. handtalk-entrenar  → Entrenamiento del clasificador" "left_tight" "Cyan"
-    Write-BoxRow "  3. handtalk-traducir  → Traducción en tiempo real (cámara)" "left_tight" "Cyan"
+    Write-BoxRow "  1. handtalk-captura   $($Script:ChArr) Captura y recolección de señas" "left_tight" "Cyan"
+    Write-BoxRow "  2. handtalk-entrenar  $($Script:ChArr) Entrenamiento del clasificador" "left_tight" "Cyan"
+    Write-BoxRow "  3. handtalk-traducir  $($Script:ChArr) Traducción en tiempo real (cámara)" "left_tight" "Cyan"
     Write-BoxRow "" "center" "White"
     Write-BoxRow "Nota: Si abre una terminal nueva y los comandos no responden," "center" "DarkGray"
     Write-BoxRow "reinicie la terminal para refrescar el PATH del sistema." "center" "DarkGray"
@@ -462,7 +523,7 @@ function Start-Installation {
 function Start-Uninstallation {
     Show-HeaderBanner
     Write-BoxTop
-    Write-BoxRow "DESINSTALACIÓN DE HANDTALK" "center" "Yellow"
+    Write-BoxRow "DESINSTALACION DE HANDTALK" "center" "Yellow"
     Write-BoxSep
     Write-BoxRow "Esta acción eliminará el entorno virtual (.\venv)" "center" "White"
     Write-BoxRow "y los atajos creados en $($Script:BinDir)." "center" "White"
@@ -471,6 +532,7 @@ function Start-Uninstallation {
 
     Prompt-Centered "¿Está seguro de que desea desinstalar HandTalk? [s/N]: " "Red"
     $confirm = [System.Console]::ReadLine()
+    if ($null -eq $confirm) { $confirm = "" }
     if ($confirm -notmatch '^[sSyY]') {
         Write-Centered ""
         Write-Centered "Operación cancelada. No se realizaron modificaciones." "Yellow"
@@ -482,21 +544,21 @@ function Start-Uninstallation {
     Write-Centered "[1/3] Eliminando entorno virtual .\venv..." "Cyan"
     if (Test-Path $Script:VenvDir) {
         Remove-Item -Path $Script:VenvDir -Recurse -Force
-        Write-Centered "      ✓ Entorno virtual eliminado." "Green"
+        Write-Centered "      $($Script:ChOk) Entorno virtual eliminado." "Green"
     } else {
-        Write-Centered "      ℹ No se encontró carpeta venv\." "DarkGray"
+        Write-Centered "      $($Script:ChInf) No se encontró carpeta venv\." "DarkGray"
     }
 
     Write-Centered "[2/3] Eliminando atajos de terminal en $($Script:BinDir)..." "Cyan"
     Remove-CliShortcuts
-    Write-Centered "      ✓ Atajos eliminados." "Green"
+    Write-Centered "      $($Script:ChOk) Atajos eliminados." "Green"
 
     Write-Centered "[3/3] Limpiando configuraciones de PATH del usuario..." "Cyan"
-    Write-Centered "      ✓ Registro de PATH actualizado." "Green"
+    Write-Centered "      $($Script:ChOk) Registro de PATH actualizado." "Green"
     Write-Centered ""
 
     Write-BoxTop
-    Write-BoxRow "DESINSTALACIÓN COMPLETADA" "center" "Green"
+    Write-BoxRow "DESINSTALACION COMPLETADA" "center" "Green"
     Write-BoxSep
     Write-BoxRow "Todos los componentes generados han sido retirados." "center" "White"
     Write-BoxRow "Sus datos y modelos entrenados se mantienen intactos." "center" "DarkGray"
@@ -513,6 +575,7 @@ function Main {
         Show-MainMenu
         Prompt-Centered "Seleccione una opción [1-3]: " "Cyan"
         $choice = [System.Console]::ReadLine()
+        if ($null -eq $choice) { $choice = "" }
 
         switch ($choice.Trim()) {
             "1" {
