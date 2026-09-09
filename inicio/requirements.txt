@@ -1,11 +1,15 @@
-# Vision y deteccion de manos
-opencv-python>=4.8.0
+# Vision y deteccion de manos (compatibles con Python 3.10-3.12 y MediaPipe 0.10.14)
+opencv-python>=4.8.0,<4.10.0
+opencv-contrib-python>=4.8.0,<4.10.0
 mediapipe==0.10.14
 
-# Machine Learning clasico (clasificador de landmarks)
-scikit-learn>=1.3.0
+# Machine Learning clasico (clasificador de landmarks - compatible con NumPy 1.x)
+scikit-learn>=1.3.0,<1.5.0
 joblib>=1.3.0
-numpy>=1.24.0
+numpy>=1.24.0,<2.0.0
 
 # Interfaz grafica
-Pillow>=10.0.0
+Pillow>=10.0.0,<11.0.0
+
+# Soporte de runtime C++ para MediaPipe en Windows (evita falta de msvcp140.dll)
+msvc-runtime>=14.30.0; platform_system == "Windows"
