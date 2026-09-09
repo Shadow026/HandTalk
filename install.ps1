@@ -444,7 +444,6 @@ function Start-Installation {
     }
 
     $venvPython = Join-Path $Script:VenvDir "Scripts\python.exe"
-    $venvPip = Join-Path $Script:VenvDir "Scripts\pip.exe"
 
     if (-not (Test-Path $venvPython)) {
         Write-Centered "      $($Script:ChErr) Error al generar entorno virtual. Revise $Script:LogFile" "Red"
@@ -468,7 +467,7 @@ function Start-Installation {
     Write-Centered "[4/5] Instalando dependencias desde inicio\requirements.txt..." "Cyan"
     Write-Centered "      (Esto puede tomar unos momentos según la conexión de red)" "DarkGray"
 
-    & $venvPip install -r $Script:RequirementsFile *>>"$Script:LogFile"
+    & $venvPython -m pip install -r $Script:RequirementsFile *>>"$Script:LogFile"
     if ($LASTEXITCODE -ne 0) {
         Write-Centered ""
         Write-BoxTop
