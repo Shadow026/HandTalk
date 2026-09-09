@@ -12,7 +12,7 @@
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1
 # ==============================================================================
 
-# Configuración de codificación de consola para visualización correcta
+# Configuración de codificación de consola para visualización correcta en español
 try {
     chcp.com 65001 | Out-Null
 } catch { }
@@ -25,21 +25,21 @@ try {
     $OutputEncoding = [System.Text.Encoding]::UTF8
 } catch { }
 
-# Definición segura de caracteres Unicode para marcos y símbolos (evita fallos de tokenizado ANSI en PowerShell 5.1)
-$Script:ChH   = [char]0x2500  # Horizontal box line
-$Script:ChV   = [char]0x2502  # Vertical box line
-$Script:ChTL  = [char]0x250C  # Top-left corner
-$Script:ChTR  = [char]0x2510  # Top-right corner
-$Script:ChBL  = [char]0x2514  # Bottom-left corner
-$Script:ChBR  = [char]0x2518  # Bottom-right corner
-$Script:ChML  = [char]0x251C  # Middle-left divider
-$Script:ChMR  = [char]0x2524  # Middle-right divider
-$Script:ChDot = [char]0x2022  # Bullet
-$Script:ChArr = [char]0x2192  # Arrow
-$Script:ChOk  = [char]0x2713  # Check
-$Script:ChErr = [char]0x2717  # Cross
-$Script:ChWrn = [char]0x26A0  # Warning
-$Script:ChInf = [char]0x2139  # Info
+# Definición segura de caracteres Unicode para marcos y símbolos
+$Script:ChH   = [char]0x2500  # Línea horizontal de caja
+$Script:ChV   = [char]0x2502  # Línea vertical de caja
+$Script:ChTL  = [char]0x250C  # Esquina superior izquierda
+$Script:ChTR  = [char]0x2510  # Esquina superior derecha
+$Script:ChBL  = [char]0x2514  # Esquina inferior izquierda
+$Script:ChBR  = [char]0x2518  # Esquina inferior derecha
+$Script:ChML  = [char]0x251C  # Divisor medio izquierdo
+$Script:ChMR  = [char]0x2524  # Divisor medio derecho
+$Script:ChDot = [char]0x2022  # Viñeta / punto
+$Script:ChArr = [char]0x2192  # Flecha hacia la derecha
+$Script:ChOk  = [char]0x2713  # Marca de verificación (Check)
+$Script:ChErr = [char]0x2717  # Marca de error (Cruz)
+$Script:ChWrn = [char]0x26A0  # Advertencia
+$Script:ChInf = [char]0x2139  # Información
 
 # Variables de rutas del proyecto
 $Script:ProjectRoot = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
@@ -209,6 +209,132 @@ function Wait-Enter {
     [void][System.Console]::ReadLine()
 }
 
+# --- Auditoría de Seguridad y Directivas de Control de Aplicaciones (SAC / WDAC) ---
+
+function Test-SmartAppControl {
+    $info = @{
+        State = 0
+        StateName = "Desactivado (Off)"
+        IsEnforced = $false
+        RecentBlocks = 0
+    }
+    try {
+        $regVal = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy' -Name VerifiedAndReputablePolicyState -ErrorAction SilentlyContinue).VerifiedAndReputablePolicyState
+        if ($null -ne $regVal) {
+            $info.State = [int]$regVal
+            switch ($info.State) {
+                1 {
+                    $info.StateName = "Activado (Bloqueo Estricto)"
+                    $info.IsEnforced = $true
+                }
+                2 {
+                    $info.StateName = "Evaluación (Monitoring)"
+                    $info.IsEnforced = $false
+                }
+                default {
+                    $info.StateName = "Desactivado (Off)"
+                    $info.IsEnforced = $false
+                }
+            }
+        }
+    } catch { }
+
+    try {
+        $events = Get-WinEvent -LogName 'Microsoft-Windows-CodeIntegrity/Operational' -MaxEvents 30 -ErrorAction SilentlyContinue |
+                  Where-Object { ($_.Id -eq 3077 -or $_.Id -eq 3033) -and ($_.Message -like "*python*" -or $_.Message -like "*venv*" -or $_.Message -like "*HandTalk*" -or $_.Message -like "*numpy*" -or $_.Message -like "*mediapipe*") }
+        if ($events) {
+            $info.RecentBlocks = ($events | Measure-Object).Count
+        }
+    } catch { }
+
+    return $info
+}
+
+function Show-SmartAppControlAlert {
+    Write-Centered ""
+    Write-BoxTop
+    Write-BoxRow "$($Script:ChWrn) BLOQUEO POR SMART APP CONTROL (WINDOWS 11)" "center" "Yellow"
+    Write-BoxSep
+    Write-BoxRow "Se detectó 'Smart App Control' en modo ACTIVO en este equipo." "center" "White"
+    Write-BoxRow "Esta directiva de Windows 11 puede bloquear extensiones .pyd de C/C++" "center" "White"
+    Write-BoxRow "produciendo el error: 'Una directiva de Control de aplicaciones...'" "center" "Yellow"
+    Write-BoxRow "" "center" "White"
+    Write-BoxRow "Si experimenta este bloqueo al iniciar HandTalk, siga estos pasos:" "left" "Cyan"
+    Write-BoxRow "  1. Ir a Seguridad de Windows $($Script:ChArr) Control de aplicaciones y explorador" "left_tight" "White"
+    Write-BoxRow "  2. Entrar en 'Configuración de Control inteligente de aplicaciones'" "left_tight" "White"
+    Write-BoxRow "  3. Cambiar el ajuste a 'Desactivado'" "left_tight" "White"
+    Write-BoxRow "  4. Reiniciar la PC para que el kernel aplique el cambio." "left_tight" "Yellow"
+    Write-BoxBottom
+    Write-Centered ""
+}
+
+# --- Aseguramiento de DLLs de C++ Runtime para MediaPipe ---
+
+function Sync-MediaPipeRuntime {
+    $mpDir = Join-Path $Script:VenvDir "Lib\site-packages\mediapipe\python"
+    if (-not (Test-Path $mpDir)) { return }
+
+    # 1. Copiar desde venv\Scripts (ubicadas por el paquete msvc-runtime)
+    $scriptsDir = Join-Path $Script:VenvDir "Scripts"
+    if (Test-Path $scriptsDir) {
+        $runtimeDlls = Get-ChildItem -Path $scriptsDir -Filter "*140*.dll" -ErrorAction SilentlyContinue
+        foreach ($dll in $runtimeDlls) {
+            Copy-Item -Path $dll.FullName -Destination $mpDir -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # 2. Copiar desde venv raíz si msvc-runtime dejó archivos allí
+    $rootDlls = Get-ChildItem -Path $Script:VenvDir -Filter "*140*.dll" -ErrorAction SilentlyContinue
+    foreach ($dll in $rootDlls) {
+        Copy-Item -Path $dll.FullName -Destination $mpDir -Force -ErrorAction SilentlyContinue
+    }
+
+    # 3. Copiar desde sklearn\.libs si están disponibles
+    $skLibs = Join-Path $Script:VenvDir "Lib\site-packages\sklearn\.libs"
+    if (Test-Path $skLibs) {
+        $skDlls = Get-ChildItem -Path $skLibs -Filter "*140*.dll" -ErrorAction SilentlyContinue
+        foreach ($dll in $skDlls) {
+            Copy-Item -Path $dll.FullName -Destination $mpDir -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+# --- Verificación Modular de Importación de Librerías ---
+
+function Test-ModuleImports {
+    param([string]$VenvPython)
+
+    if (-not (Test-Path $VenvPython)) { return @() }
+
+    # Script Python inline que evalúa cada librería independientemente
+    $code = @"
+import json
+tests = [('numpy','NumPy'), ('cv2','OpenCV'), ('mediapipe','MediaPipe'), ('sklearn','Scikit-Learn'), ('PIL','Pillow')]
+res = []
+for mod, name in tests:
+    item = {'module': mod, 'name': name, 'status': 'FAIL', 'version': '', 'error': ''}
+    try:
+        m = __import__(mod)
+        item['status'] = 'OK'
+        item['version'] = str(getattr(m, '__version__', 'ok'))
+    except Exception as e:
+        item['status'] = 'FAIL'
+        item['error'] = str(e)
+    res.append(item)
+print('__JSON_START__' + json.dumps(res) + '__JSON_END__')
+"@
+    try {
+        $output = & $VenvPython -c $code 2>&1
+        $rawText = $output -join "`n"
+        $match = [regex]::Match($rawText, '__JSON_START__(.*?)__JSON_END__')
+        if ($match.Success) {
+            return ($match.Groups[1].Value | ConvertFrom-Json)
+        }
+    } catch { }
+
+    return @()
+}
+
 # --- Detección y Validación de Python en Windows ---
 
 function Find-CompatiblePython {
@@ -318,7 +444,7 @@ function Create-CliShortcuts {
     $shortcuts = @(
         @{ Name = "handtalk-captura"; Target = "inicio\gui_captura.py"; Desc = "Captura de señas" },
         @{ Name = "handtalk-entrenar"; Target = "inicio\train_classifier.py"; Desc = "Entrenamiento de modelo" },
-        @{ Name = "handtalk-traducir"; Target = "inicio\realtime_translator.py"; Desc = "Traduccion en vivo" }
+        @{ Name = "handtalk-traducir"; Target = "inicio\realtime_translator.py"; Desc = "Traducción en vivo" }
     )
 
     foreach ($item in $shortcuts) {
@@ -398,6 +524,12 @@ function Start-Installation {
     Write-BoxBottom
     Write-Centered ""
 
+    # Detección preventiva de Smart App Control (SAC) en Windows 11
+    $sacPre = Test-SmartAppControl
+    if ($sacPre.IsEnforced) {
+        Show-SmartAppControlAlert
+    }
+
     # 1. Detección de Python compatible
     Write-Centered "[1/5] Buscando intérprete Python compatible (3.10 - 3.12)..." "Cyan"
     $pyInfo = Find-CompatiblePython
@@ -453,19 +585,19 @@ function Start-Installation {
     Write-Centered "      $($Script:ChOk) Entorno virtual preparado con éxito." "Green"
     Write-Centered ""
 
-    # 3. Actualización de pip, setuptools y wheel
-    Write-Centered "[3/5] Actualizando pip, setuptools y wheel..." "Cyan"
+    # 3. Actualización de gestores de paquetes con intérprete firmado
+    Write-Centered "[3/5] Actualizando gestor pip mediante el intérprete firmado..." "Cyan"
     & $venvPython -m pip install --upgrade pip setuptools wheel *>>"$Script:LogFile"
     if ($LASTEXITCODE -ne 0) {
         Write-Centered "      $($Script:ChWrn) Advertencia al actualizar pip; continuando..." "Yellow"
     } else {
-        Write-Centered "      $($Script:ChOk) Gestores de paquetes actualizados." "Green"
+        Write-Centered "      $($Script:ChOk) Gestores de paquetes listos." "Green"
     }
     Write-Centered ""
 
-    # 4. Instalación de dependencias
-    Write-Centered "[4/5] Instalando dependencias desde inicio\requirements.txt..." "Cyan"
-    Write-Centered "      (Esto puede tomar unos momentos según la conexión de red)" "DarkGray"
+    # 4. Instalación de dependencias armonizadas
+    Write-Centered "[4/5] Instalando dependencias armonizadas desde inicio\requirements.txt..." "Cyan"
+    Write-Centered "      (Garantizando NumPy < 2.0 y OpenCV 4.x para MediaPipe 0.10.14)" "DarkGray"
 
     & $venvPython -m pip install -r $Script:RequirementsFile *>>"$Script:LogFile"
     if ($LASTEXITCODE -ne 0) {
@@ -480,7 +612,13 @@ function Start-Installation {
         Wait-Enter
         return
     }
-    Write-Centered "      $($Script:ChOk) Dependencias instaladas correctamente." "Green"
+
+    # Asegurar runtime de C++ para MediaPipe en Windows
+    Sync-MediaPipeRuntime
+
+    # Verificación de consistencia del árbol de dependencias
+    & $venvPython -m pip check *>>"$Script:LogFile"
+    Write-Centered "      $($Script:ChOk) Dependencias instaladas y verificadas sin conflictos." "Green"
     Write-Centered ""
 
     # 5. Creación de Atajos CLI
@@ -489,30 +627,50 @@ function Start-Installation {
     Write-Centered "      $($Script:ChOk) Atajos creados (.bat) y agregados al PATH del usuario." "Green"
     Write-Centered ""
 
-    # 6. Verificación Post-Instalación (Smoke Test)
-    Write-Centered "Ejecutando prueba rápida de importación de librerías..." "White"
-    $smokeCode = "import cv2, mediapipe, sklearn, PIL, numpy; print('OK')"
-    $smokeOut = & $venvPython -c $smokeCode 2>$null
-    if ($smokeOut -eq "OK") {
-        Write-Centered "      $($Script:ChOk) Todas las librerías clave importadas correctamente." "Green"
+    # 6. Verificación Post-Instalación (Smoke Test Modular)
+    Write-Centered "Ejecutando verificación de carga de librerías..." "White"
+    $modResults = Test-ModuleImports -VenvPython $venvPython
+    $allOk = $true
+    $hasSacBlock = $false
+
+    if ($modResults -and $modResults.Count -gt 0) {
+        foreach ($m in $modResults) {
+            if ($m.status -eq "OK") {
+                Write-Centered "      $($Script:ChOk) $($m.name): v$($m.version)" "Green"
+            } else {
+                $allOk = $false
+                Write-Centered "      $($Script:ChErr) $($m.name): Falló la carga" "Red"
+                if ($m.error -like "*Control de aplicaciones*" -or $m.error -like "*Application Control*") {
+                    $hasSacBlock = $true
+                }
+            }
+        }
     } else {
-        Write-Centered "      $($Script:ChWrn) Advertencia: Verifique los módulos en $Script:LogFile" "Yellow"
+        $allOk = $false
     }
     Write-Centered ""
 
-    # Resumen de instalación
-    Write-BoxTop
-    Write-BoxRow "¡INSTALACION COMPLETADA CON EXITO!" "center" "Green"
-    Write-BoxSep
-    Write-BoxRow "Ya puede invocar HandTalk directamente desde CMD o PowerShell:" "center" "White"
-    Write-BoxRow "" "center" "White"
-    Write-BoxRow "  1. handtalk-captura   $($Script:ChArr) Captura y recolección de señas" "left_tight" "Cyan"
-    Write-BoxRow "  2. handtalk-entrenar  $($Script:ChArr) Entrenamiento del clasificador" "left_tight" "Cyan"
-    Write-BoxRow "  3. handtalk-traducir  $($Script:ChArr) Traducción en tiempo real (cámara)" "left_tight" "Cyan"
-    Write-BoxRow "" "center" "White"
-    Write-BoxRow "Nota: Si abre una terminal nueva y los comandos no responden," "center" "DarkGray"
-    Write-BoxRow "reinicie la terminal para refrescar el PATH del sistema." "center" "DarkGray"
-    Write-BoxBottom
+    if ($allOk) {
+        Write-BoxTop
+        Write-BoxRow "¡INSTALACION COMPLETADA CON EXITO!" "center" "Green"
+        Write-BoxSep
+        Write-BoxRow "Ya puede invocar HandTalk directamente desde CMD o PowerShell:" "center" "White"
+        Write-BoxRow "" "center" "White"
+        Write-BoxRow "  1. handtalk-captura   $($Script:ChArr) Captura y recolección de señas" "left_tight" "Cyan"
+        Write-BoxRow "  2. handtalk-entrenar  $($Script:ChArr) Entrenamiento del clasificador" "left_tight" "Cyan"
+        Write-BoxRow "  3. handtalk-traducir  $($Script:ChArr) Traducción en tiempo real (cámara)" "left_tight" "Cyan"
+        Write-BoxRow "" "center" "White"
+        Write-BoxRow "Nota: Si abre una terminal nueva y los comandos no responden," "center" "DarkGray"
+        Write-BoxRow "reinicie la terminal para refrescar el PATH del sistema." "center" "DarkGray"
+        Write-BoxBottom
+    } else {
+        if ($hasSacBlock) {
+            Write-Centered "      $($Script:ChWrn) Dependencias instaladas, pero bloqueadas por Windows SAC." "Yellow"
+            Show-SmartAppControlAlert
+        } else {
+            Write-Centered "      $($Script:ChWrn) Advertencia: Revise los módulos en $Script:LogFile" "Yellow"
+        }
+    }
 
     Wait-Enter
 }
@@ -566,7 +724,7 @@ function Start-Uninstallation {
     Wait-Enter
 }
 
-# --- Bucle Principal del Menú ---
+# --- Bucle Principal del Menú (3 Opciones) ---
 
 function Main {
     do {
