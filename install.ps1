@@ -101,19 +101,22 @@ function Write-Centered {
 }
 
 function Write-BoxTop {
-    $border = "$($Script:ChH)" * 64
+    param([int]$Width = 64)
+    $border = "$($Script:ChH)" * $Width
     $line = "$($Script:ChTL)$border$($Script:ChTR)"
     Write-Centered -Text $line -ForegroundColor Cyan
 }
 
 function Write-BoxSep {
-    $border = "$($Script:ChH)" * 64
+    param([int]$Width = 64)
+    $border = "$($Script:ChH)" * $Width
     $line = "$($Script:ChML)$border$($Script:ChMR)"
     Write-Centered -Text $line -ForegroundColor Cyan
 }
 
 function Write-BoxBottom {
-    $border = "$($Script:ChH)" * 64
+    param([int]$Width = 64)
+    $border = "$($Script:ChH)" * $Width
     $line = "$($Script:ChBL)$border$($Script:ChBR)"
     Write-Centered -Text $line -ForegroundColor Cyan
 }
@@ -122,9 +125,10 @@ function Write-BoxRow {
     param(
         [string]$Text = "",
         [string]$Align = "center",
-        [string]$ForegroundColor = "White"
+        [string]$ForegroundColor = "White",
+        [int]$Width = 64
     )
-    $innerWidth = 64
+    $innerWidth = $Width
     $clean = Strip-Ansi $Text
     $len = $clean.Length
     $padLeft = 0
@@ -146,7 +150,7 @@ function Write-BoxRow {
     $content = "$leftSpaces$Text$rightSpaces"
 
     $width = Get-ConsoleWidth
-    $boxLen = 66
+    $boxLen = $Width + 2
     $boxPad = [Math]::Max(0, [int][Math]::Floor(($width - $boxLen) / 2))
     $outerSpaces = " " * $boxPad
 
@@ -165,16 +169,17 @@ function Write-BoxRow {
 function Show-HeaderBanner {
     try { Clear-Host } catch { Write-Host "`n`n" }
     Write-Centered ""
-    Write-BoxTop
-    Write-BoxRow "   _   _    _    _   _ ____ _____  _    _     _  __             " "center" "White"
-    Write-BoxRow "  | | | |  / \  | \ | |  _ \_   _|/ \  | |   | |/ /             " "center" "White"
-    Write-BoxRow "  | |_| | / _ \ |  \| | | | || | / _ \ | |   | ' /              " "center" "White"
-    Write-BoxRow "  |  _  |/ ___ \| |\  | |_| || |/ ___ \| |___| . \              " "center" "White"
-    Write-BoxRow "  |_| |_/_/   \_\_| \_|____/ |_/_/   \_\_____|_|\_\             " "center" "White"
-    Write-BoxRow "                                                                " "center" "White"
-    Write-BoxRow "        Sistema de Reconocimiento y Traducción de Señas         " "center" "Yellow"
-    Write-BoxRow "        MediaPipe 0.10.14  $($Script:ChDot)  OpenCV  $($Script:ChDot)  Scikit-Learn           " "center" "DarkGray"
-    Write-BoxBottom
+    Write-BoxTop -Width 71
+    Write-BoxRow "██╗  ██╗ █████╗ ███╗   ██╗██████╗ ████████╗ █████╗ ██╗     ██╗  ██╗" "center" "White" -Width 71
+    Write-BoxRow "██║  ██║██╔══██╗████╗  ██║██╔══██╗╚══██╔══╝██╔══██╗██║     ██║ ██╔╝" "center" "White" -Width 71
+    Write-BoxRow "███████║███████║██╔██╗ ██║██║  ██║   ██║   ███████║██║     █████╔╝ " "center" "White" -Width 71
+    Write-BoxRow "██╔══██║██╔══██║██║╚██╗██║██║  ██║   ██║   ██╔══██║██║     ██╔═██╗ " "center" "White" -Width 71
+    Write-BoxRow "██║  ██║██║  ██║██║ ╚████║██████╔╝   ██║   ██║  ██║███████╗██║  ██╗" "center" "White" -Width 71
+    Write-BoxRow "╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝    ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝" "center" "White" -Width 71
+    Write-BoxRow "" "center" "White" -Width 71
+    Write-BoxRow "Sistema de Reconocimiento y Traducción de Señas" "center" "Yellow" -Width 71
+    Write-BoxRow "MediaPipe 0.10.14  $($Script:ChDot)  OpenCV  $($Script:ChDot)  Scikit-Learn" "center" "DarkGray" -Width 71
+    Write-BoxBottom -Width 71
     Write-Centered ""
 }
 
