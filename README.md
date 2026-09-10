@@ -30,6 +30,12 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 > - `handtalk-entrenar` ➔ Entrena el modelo clasificador.
 > - `handtalk-traducir` ➔ Inicia la traducción en tiempo real con cámara.
 
+### 🔄 Actualización de Dependencias
+Si en el futuro se agregan nuevas librerías al archivo `inicio/requirements.txt`, no es necesario reinstalar todo el entorno desde cero ni perder tus configuraciones. Solo debes ejecutar nuevamente el instalador (`./install.sh` o `.\install.ps1`) y seleccionar:
+- **`[2] Actualizar Dependencias`**: Detecta automáticamente tu entorno virtual existente e instala únicamente los paquetes nuevos o pendientes dentro del `venv`, ejecutando además una prueba de integridad de módulos sin alterar tus atajos ni tus modelos entrenados.
+
+> ⚠️ **Importante**: Por seguridad, esta opción valida que el entorno virtual y los atajos de terminal hayan sido creados previamente mediante la opción `[1]`.
+
 ---
 
 ## ⚙️ Guía de Configuración Manual del Entorno

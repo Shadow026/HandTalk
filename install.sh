@@ -15,6 +15,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="${SCRIPT_DIR}/venv"
 REQUIREMENTS_FILE="${SCRIPT_DIR}/inicio/requirements.txt"
 LOG_FILE="/tmp/handtalk_install.log"
+if ! touch "${LOG_FILE}" >/dev/null 2>&1; then
+    LOG_FILE="${TMPDIR:-/tmp}/handtalk_install_${USER:-$(id -un 2>/dev/null || echo user)}.log"
+fi
 BIN_DIR="${HOME}/.local/bin"
 
 # --- Paleta de Colores ANSI y Estilos ---
@@ -152,8 +155,9 @@ print_menu() {
     print_box_sep
     print_box_row "" "center"
     print_box_row "${C_GREEN}[1]${C_WHITE}  Instalación Completa  ${C_GRAY}(Entorno + Dependencias + Atajos)${C_RESET}" "left"
-    print_box_row "${C_YELLOW}[2]${C_WHITE}  Desinstalación Total  ${C_GRAY}(Eliminar venv y atajos CLI)${C_RESET}" "left"
-    print_box_row "${C_RED}[3]${C_WHITE}  Salir${C_RESET}" "left"
+    print_box_row "${C_CYAN}[2]${C_WHITE}  Actualizar Dependencias  ${C_GRAY}(Librerías nuevas en venv)${C_RESET}" "left"
+    print_box_row "${C_YELLOW}[3]${C_WHITE}  Desinstalación Total  ${C_GRAY}(Eliminar venv y atajos CLI)${C_RESET}" "left"
+    print_box_row "${C_RED}[4]${C_WHITE}  Salir${C_RESET}" "left"
     print_box_row "" "center"
     print_box_bottom
     print_centered ""
@@ -416,7 +420,117 @@ print('OK')
     wait_enter
 }
 
-# --- Acción 2: Desinstalación ---
+# --- Acción 2: Actualización de Dependencias ---
+
+do_update_dependencies() {
+    print_header_banner
+    print_box_top
+    print_box_row "${C_CYAN}${C_BOLD}ACTUALIZACIÓN DE DEPENDENCIAS (VIRTUALENV)${C_RESET}" "center"
+    print_box_bottom
+    print_centered ""
+
+    # 1. Validación de Pre-requisito: Entorno virtual
+    if [ ! -d "${VENV_DIR}" ] || [ ! -f "${VENV_DIR}/bin/python" ] || [ ! -f "${VENV_DIR}/bin/pip" ]; then
+        print_box_top
+        print_box_row "${C_RED}✗ ERROR: ENTORNO VIRTUAL NO ENCONTRADO${C_RESET}" "center"
+        print_box_sep
+        print_box_row "${C_WHITE}No se detectó un entorno virtual válido en ./venv.${C_RESET}" "center"
+        print_box_row "${C_YELLOW}No se pueden actualizar dependencias sin un entorno previo.${C_RESET}" "center"
+        print_box_row "" "center"
+        print_box_row "${C_CYAN}Solución recomendada:${C_RESET}" "left"
+        print_box_row "  • Ejecute primero la opción [1] (Instalación Completa)." "left_tight"
+        print_box_bottom
+        wait_enter
+        return 1
+    fi
+
+    # 2. Validación de Pre-requisito: Atajos CLI
+    local shortcuts=("handtalk-captura" "handtalk-entrenar" "handtalk-traducir")
+    local missing_shortcuts=0
+    for name in "${shortcuts[@]}"; do
+        if [ ! -f "${BIN_DIR}/${name}" ]; then
+            missing_shortcuts=1
+            break
+        fi
+    done
+
+    if [ "$missing_shortcuts" -eq 1 ]; then
+        print_box_top
+        print_box_row "${C_RED}✗ ERROR: ATAJOS CLI NO ENCONTRADOS${C_RESET}" "center"
+        print_box_sep
+        print_box_row "${C_WHITE}No se encontraron los atajos globales en ~/.local/bin.${C_RESET}" "center"
+        print_box_row "${C_YELLOW}El sistema requiere que la instalación inicial esté completa.${C_RESET}" "center"
+        print_box_row "" "center"
+        print_box_row "${C_CYAN}Solución recomendada:${C_RESET}" "left"
+        print_box_row "  • Ejecute primero la opción [1] (Instalación Completa)." "left_tight"
+        print_box_bottom
+        wait_enter
+        return 1
+    fi
+
+    # 3. Validación de Pre-requisito: Archivo requirements.txt
+    if [ ! -f "${REQUIREMENTS_FILE}" ]; then
+        print_box_top
+        print_box_row "${C_RED}✗ ERROR: ARCHIVO DE REQUERIMIENTOS NO ENCONTRADO${C_RESET}" "center"
+        print_box_sep
+        print_box_row "${C_WHITE}No se encontró el archivo inicio/requirements.txt.${C_RESET}" "center"
+        print_box_bottom
+        wait_enter
+        return 1
+    fi
+
+    # Ejecución de la actualización
+    print_centered "${C_CYAN}[1/3]${C_WHITE} Validando entorno virtual y atajos CLI...${C_RESET}"
+    print_centered "      ${C_GREEN}✓${C_WHITE} Entorno virtual y atajos detectados correctamente.${C_RESET}"
+    print_centered ""
+
+    print_centered "${C_CYAN}[2/3]${C_WHITE} Sincronizando dependencias desde ${C_GRAY}inicio/requirements.txt${C_RESET}..."
+    print_centered "      ${C_GRAY}(Solo se instalarán paquetes nuevos o pendientes)${C_RESET}"
+
+    if ! "${VENV_DIR}/bin/pip" install -r "${REQUIREMENTS_FILE}" >>"${LOG_FILE}" 2>&1; then
+        print_centered ""
+        print_box_top
+        print_box_row "${C_RED}✗ ERROR AL ACTUALIZAR DEPENDENCIAS${C_RESET}" "center"
+        print_box_sep
+        print_box_row "${C_WHITE}Hubo un problema al instalar las nuevas librerías.${C_RESET}" "center"
+        print_box_row "${C_GRAY}Consulte los detalles en el archivo de registro:${C_RESET}" "center"
+        print_box_row "${C_YELLOW}${LOG_FILE}${C_RESET}" "center"
+        print_box_bottom
+        wait_enter
+        return 1
+    fi
+    print_centered "      ${C_GREEN}✓${C_WHITE} Dependencias instaladas y actualizadas.${C_RESET}"
+    print_centered ""
+
+    print_centered "${C_CYAN}[3/3]${C_WHITE} Verificando integridad del entorno virtual...${C_RESET}"
+    local smoke_test
+    smoke_test=$("${VENV_DIR}/bin/python" -c "
+import cv2, mediapipe, sklearn, PIL, numpy
+print('OK')
+" 2>/dev/null || echo "FAIL")
+
+    if [ "$smoke_test" != "OK" ]; then
+        print_centered "      ${C_YELLOW}⚠ Advertencia: El test de importación arrojó observaciones.${C_RESET}"
+        print_centered "      ${C_GRAY}Revise el registro en ${LOG_FILE}${C_RESET}"
+    else
+        print_centered "      ${C_GREEN}✓${C_WHITE} Todas las librerías clave importadas correctamente.${C_RESET}"
+    fi
+    print_centered ""
+
+    # Resumen de éxito
+    print_box_top
+    print_box_row "${C_GREEN}${C_BOLD}¡DEPENDENCIAS ACTUALIZADAS CON ÉXITO!${C_RESET}" "center"
+    print_box_sep
+    print_box_row "${C_WHITE}El entorno virtual ahora cuenta con todas las librerías${C_RESET}" "center"
+    print_box_row "${C_WHITE}especificadas en inicio/requirements.txt.${C_RESET}" "center"
+    print_box_row "" "center"
+    print_box_row "${C_GRAY}Sus atajos y modelos continúan listos para usar.${C_RESET}" "center"
+    print_box_bottom
+
+    wait_enter
+}
+
+# --- Acción 3: Desinstalación ---
 
 do_uninstallation() {
     print_header_banner
@@ -471,7 +585,7 @@ main() {
     while true; do
         print_header_banner
         print_menu
-        prompt_centered "${C_CYAN}${C_BOLD}Seleccione una opción [1-3]: ${C_RESET}"
+        prompt_centered "${C_CYAN}${C_BOLD}Seleccione una opción [1-4]: ${C_RESET}"
         # shellcheck disable=SC2162
         read -r choice
 
@@ -480,9 +594,12 @@ main() {
                 do_installation
                 ;;
             2)
-                do_uninstallation
+                do_update_dependencies
                 ;;
             3)
+                do_uninstallation
+                ;;
+            4)
                 print_header_banner
                 print_box_top
                 print_box_row "${C_WHITE}¡GRACIAS POR USAR HANDTALK!${C_RESET}" "center"
@@ -494,7 +611,7 @@ main() {
                 ;;
             *)
                 print_centered ""
-                print_centered "${C_RED}Opción no válida. Ingrese 1, 2 o 3.${C_RESET}"
+                print_centered "${C_RED}Opción no válida. Ingrese 1, 2, 3 o 4.${C_RESET}"
                 sleep 1.2
                 ;;
         esac

@@ -189,8 +189,9 @@ function Show-MainMenu {
     Write-BoxSep
     Write-BoxRow "" "center" "White"
     Write-BoxRow "[1]  Instalación Completa  (Entorno + Dependencias + Atajos)" "left" "Green"
-    Write-BoxRow "[2]  Desinstalación Total  (Eliminar venv y atajos CLI)" "left" "Yellow"
-    Write-BoxRow "[3]  Salir" "left" "Red"
+    Write-BoxRow "[2]  Actualizar Dependencias  (Librerías nuevas en venv)" "left" "Cyan"
+    Write-BoxRow "[3]  Desinstalación Total  (Eliminar venv y atajos CLI)" "left" "Yellow"
+    Write-BoxRow "[4]  Salir" "left" "Red"
     Write-BoxRow "" "center" "White"
     Write-BoxBottom
     Write-Centered ""
@@ -680,7 +681,114 @@ function Start-Installation {
     Wait-Enter
 }
 
-# --- Acción 2: Desinstalación ---
+# --- Acción 2: Actualización de Dependencias ---
+
+function Update-Dependencies {
+    Show-HeaderBanner
+    Write-BoxTop
+    Write-BoxRow "ACTUALIZACION DE DEPENDENCIAS (WINDOWS)" "center" "White"
+    Write-BoxBottom
+    Write-Centered ""
+
+    # 1. Validación de Pre-requisito: Entorno virtual
+    $venvPython = Join-Path $Script:VenvDir "Scripts\python.exe"
+    if (-not (Test-Path $Script:VenvDir) -or -not (Test-Path $venvPython)) {
+        Write-BoxTop
+        Write-BoxRow "$($Script:ChErr) ERROR: ENTORNO VIRTUAL NO ENCONTRADO" "center" "Red"
+        Write-BoxSep
+        Write-BoxRow "No se detectó un entorno virtual válido en .\venv." "center" "White"
+        Write-BoxRow "No se pueden actualizar dependencias sin un entorno previo." "center" "Yellow"
+        Write-BoxRow "" "center" "White"
+        Write-BoxRow "Solución recomendada:" "left" "Cyan"
+        Write-BoxRow "  $($Script:ChDot) Ejecute primero la opción [1] (Instalación Completa)." "left_tight" "White"
+        Write-BoxBottom
+        Wait-Enter
+        return
+    }
+
+    # 2. Validación de Pre-requisito: Atajos CLI
+    $shortcuts = @("handtalk-captura.bat", "handtalk-entrenar.bat", "handtalk-traducir.bat")
+    $missingShortcuts = $shortcuts | Where-Object { -not (Test-Path (Join-Path $Script:BinDir $_)) }
+    if ($missingShortcuts) {
+        Write-BoxTop
+        Write-BoxRow "$($Script:ChErr) ERROR: ATAJOS CLI NO ENCONTRADOS" "center" "Red"
+        Write-BoxSep
+        Write-BoxRow "No se encontraron los atajos globales en $Script:BinDir." "center" "White"
+        Write-BoxRow "El sistema requiere que la instalación inicial esté completa." "center" "Yellow"
+        Write-BoxRow "" "center" "White"
+        Write-BoxRow "Solución recomendada:" "left" "Cyan"
+        Write-BoxRow "  $($Script:ChDot) Ejecute primero la opción [1] (Instalación Completa)." "left_tight" "White"
+        Write-BoxBottom
+        Wait-Enter
+        return
+    }
+
+    # 3. Validación de Pre-requisito: Archivo requirements.txt
+    if (-not (Test-Path $Script:RequirementsFile)) {
+        Write-BoxTop
+        Write-BoxRow "$($Script:ChErr) ERROR: ARCHIVO DE REQUERIMIENTOS NO ENCONTRADO" "center" "Red"
+        Write-BoxSep
+        Write-BoxRow "No se encontró el archivo inicio\requirements.txt." "center" "White"
+        Write-BoxBottom
+        Wait-Enter
+        return
+    }
+
+    # Ejecución de la actualización
+    Write-Centered "[1/3] Validando entorno virtual y atajos CLI..." "Cyan"
+    Write-Centered "      $($Script:ChOk) Entorno virtual y atajos detectados correctamente." "Green"
+    Write-Centered ""
+
+    Write-Centered "[2/3] Sincronizando dependencias desde inicio\requirements.txt..." "Cyan"
+    Write-Centered "      (Solo se instalarán paquetes nuevos o pendientes)" "DarkGray"
+
+    & $venvPython -m pip install -r $Script:RequirementsFile *>>"$Script:LogFile"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Centered ""
+        Write-BoxTop
+        Write-BoxRow "$($Script:ChErr) ERROR AL ACTUALIZAR DEPENDENCIAS" "center" "Red"
+        Write-BoxSep
+        Write-BoxRow "Hubo un problema al instalar las nuevas librerías." "center" "White"
+        Write-BoxRow "Consulte los detalles en el archivo de registro:" "center" "DarkGray"
+        Write-BoxRow "$Script:LogFile" "center" "Yellow"
+        Write-BoxBottom
+        Wait-Enter
+        return
+    }
+
+    # Asegurar runtime de C++ para MediaPipe en Windows y verificar árbol
+    Sync-MediaPipeRuntime
+    & $venvPython -m pip check *>>"$Script:LogFile"
+    Write-Centered "      $($Script:ChOk) Dependencias instaladas y verificadas." "Green"
+    Write-Centered ""
+
+    Write-Centered "[3/3] Ejecutando verificación de módulos..." "Cyan"
+    $modResults = Test-ModuleImports -VenvPython $venvPython
+    if ($modResults -and $modResults.Count -gt 0) {
+        foreach ($m in $modResults) {
+            if ($m.status -eq "OK") {
+                Write-Centered "      $($Script:ChOk) $($m.name): v$($m.version)" "Green"
+            } else {
+                Write-Centered "      $($Script:ChWrn) $($m.name): $($m.error)" "Yellow"
+            }
+        }
+    }
+    Write-Centered ""
+
+    # Resumen de éxito
+    Write-BoxTop
+    Write-BoxRow "¡DEPENDENCIAS ACTUALIZADAS CON EXITO!" "center" "Green"
+    Write-BoxSep
+    Write-BoxRow "El entorno virtual ahora cuenta con todas las librerías" "center" "White"
+    Write-BoxRow "especificadas en inicio\requirements.txt." "center" "White"
+    Write-BoxRow "" "center" "White"
+    Write-BoxRow "Sus atajos y modelos continúan listos para usar." "center" "DarkGray"
+    Write-BoxBottom
+
+    Wait-Enter
+}
+
+# --- Acción 3: Desinstalación ---
 
 function Start-Uninstallation {
     Show-HeaderBanner
@@ -729,13 +837,13 @@ function Start-Uninstallation {
     Wait-Enter
 }
 
-# --- Bucle Principal del Menú (3 Opciones) ---
+# --- Bucle Principal del Menú (4 Opciones) ---
 
 function Main {
     do {
         Show-HeaderBanner
         Show-MainMenu
-        Prompt-Centered "Seleccione una opción [1-3]: " "Cyan"
+        Prompt-Centered "Seleccione una opción [1-4]: " "Cyan"
         $choice = [System.Console]::ReadLine()
         if ($null -eq $choice) { $choice = "" }
 
@@ -744,9 +852,12 @@ function Main {
                 Start-Installation
             }
             "2" {
-                Start-Uninstallation
+                Update-Dependencies
             }
             "3" {
+                Start-Uninstallation
+            }
+            "4" {
                 Show-HeaderBanner
                 Write-BoxTop
                 Write-BoxRow "¡GRACIAS POR USAR HANDTALK!" "center" "White"
@@ -758,7 +869,7 @@ function Main {
             }
             default {
                 Write-Centered ""
-                Write-Centered "Opción no válida. Ingrese 1, 2 o 3." "Red"
+                Write-Centered "Opción no válida. Ingrese 1, 2, 3 o 4." "Red"
                 Start-Sleep -Milliseconds 1200
             }
         }
