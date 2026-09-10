@@ -149,9 +149,9 @@ function Write-BoxRow {
     $rightSpaces = " " * $padRight
     $content = "$leftSpaces$Text$rightSpaces"
 
-    $width = Get-ConsoleWidth
-    $boxLen = $Width + 2
-    $boxPad = [Math]::Max(0, [int][Math]::Floor(($width - $boxLen) / 2))
+    $consoleWidth = Get-ConsoleWidth
+    $boxLen = $innerWidth + 2
+    $boxPad = [Math]::Max(0, [int][Math]::Floor(($consoleWidth - $boxLen) / 2))
     $outerSpaces = " " * $boxPad
 
     Write-Host "$outerSpaces" -NoNewline
@@ -257,20 +257,21 @@ function Test-SmartAppControl {
 }
 
 function Show-SmartAppControlAlert {
+    $sacWidth = 72
     Write-Centered ""
-    Write-BoxTop
-    Write-BoxRow "$($Script:ChWrn) BLOQUEO POR SMART APP CONTROL (WINDOWS 11)" "center" "Yellow"
-    Write-BoxSep
-    Write-BoxRow "Se detectó 'Smart App Control' en modo ACTIVO en este equipo." "center" "White"
-    Write-BoxRow "Esta directiva de Windows 11 puede bloquear extensiones .pyd de C/C++" "center" "White"
-    Write-BoxRow "produciendo el error: 'Una directiva de Control de aplicaciones...'" "center" "Yellow"
-    Write-BoxRow "" "center" "White"
-    Write-BoxRow "Si experimenta este bloqueo al iniciar HandTalk, siga estos pasos:" "left" "Cyan"
-    Write-BoxRow "  1. Ir a Seguridad de Windows $($Script:ChArr) Control de aplicaciones y explorador" "left_tight" "White"
-    Write-BoxRow "  2. Entrar en 'Configuración de Control inteligente de aplicaciones'" "left_tight" "White"
-    Write-BoxRow "  3. Cambiar el ajuste a 'Desactivado'" "left_tight" "White"
-    Write-BoxRow "  4. Reiniciar la PC para que el kernel aplique el cambio." "left_tight" "Yellow"
-    Write-BoxBottom
+    Write-BoxTop -Width $sacWidth
+    Write-BoxRow "$($Script:ChWrn) BLOQUEO POR SMART APP CONTROL (WINDOWS 11)" "center" "Yellow" -Width $sacWidth
+    Write-BoxSep -Width $sacWidth
+    Write-BoxRow "Se detectó 'Smart App Control' en modo ACTIVO en este equipo." "center" "White" -Width $sacWidth
+    Write-BoxRow "Esta directiva de Windows 11 puede bloquear extensiones .pyd de C/C++" "center" "White" -Width $sacWidth
+    Write-BoxRow "produciendo el error: 'Una directiva de Control de aplicaciones...'" "center" "Yellow" -Width $sacWidth
+    Write-BoxRow "" "center" "White" -Width $sacWidth
+    Write-BoxRow "Si experimenta este bloqueo al iniciar HandTalk, siga estos pasos:" "left" "Cyan" -Width $sacWidth
+    Write-BoxRow "  1. Ir a Seguridad de Windows $($Script:ChArr) Control de aplicaciones y explorador" "left_tight" "White" -Width $sacWidth
+    Write-BoxRow "  2. Entrar en 'Configuración de Control inteligente de aplicaciones'" "left_tight" "White" -Width $sacWidth
+    Write-BoxRow "  3. Cambiar el ajuste a 'Desactivado'" "left_tight" "White" -Width $sacWidth
+    Write-BoxRow "  4. Reiniciar la PC para que el kernel aplique el cambio." "left_tight" "Yellow" -Width $sacWidth
+    Write-BoxBottom -Width $sacWidth
     Write-Centered ""
 }
 
@@ -666,8 +667,8 @@ function Start-Installation {
         Write-BoxRow "  2. handtalk-entrenar  $($Script:ChArr) Entrenamiento del clasificador" "left_tight" "Cyan"
         Write-BoxRow "  3. handtalk-traducir  $($Script:ChArr) Traducción en tiempo real (cámara)" "left_tight" "Cyan"
         Write-BoxRow "" "center" "White"
-        Write-BoxRow "Nota: Si abre una terminal nueva y los comandos no responden," "center" "DarkGray"
-        Write-BoxRow "reinicie la terminal para refrescar el PATH del sistema." "center" "DarkGray"
+        Write-BoxRow "Nota: Debe abrir una nueva terminal de PowerShell para" "center" "DarkGray"
+        Write-BoxRow "usar los atajos (no funcionan en esta misma ventana)." "center" "DarkGray"
         Write-BoxBottom
     } else {
         if ($hasSacBlock) {
@@ -713,8 +714,9 @@ function Update-Dependencies {
         Write-BoxTop
         Write-BoxRow "$($Script:ChErr) ERROR: ATAJOS CLI NO ENCONTRADOS" "center" "Red"
         Write-BoxSep
-        Write-BoxRow "No se encontraron los atajos globales en $Script:BinDir." "center" "White"
-        Write-BoxRow "El sistema requiere que la instalación inicial esté completa." "center" "Yellow"
+        Write-BoxRow "No se encontraron los atajos globales en el directorio:" "center" "White"
+        Write-BoxRow "$Script:BinDir" "center" "Yellow"
+        Write-BoxRow "El sistema requiere que la instalación inicial esté completa." "center" "White"
         Write-BoxRow "" "center" "White"
         Write-BoxRow "Solución recomendada:" "left" "Cyan"
         Write-BoxRow "  $($Script:ChDot) Ejecute primero la opción [1] (Instalación Completa)." "left_tight" "White"

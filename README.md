@@ -29,6 +29,8 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 > - `handtalk-captura` ➔ Abre la interfaz gráfica para recolectar señas.
 > - `handtalk-entrenar` ➔ Entrena el modelo clasificador.
 > - `handtalk-traducir` ➔ Inicia la traducción en tiempo real con cámara.
+>
+> ⚠️ **Nota importante para Windows:** Para utilizar los atajos después de la instalación, **no se puede hacer en la misma terminal donde se realizó la instalación**. Es necesario **abrir una nueva ventana de terminal de PowerShell (o CMD)** para que el sistema refresque las variables de entorno y reconozca la ruta del `PATH`.
 
 ### 🔄 Actualización de Dependencias
 Si en el futuro se agregan nuevas librerías al archivo `inicio/requirements.txt`, no es necesario reinstalar todo el entorno desde cero ni perder tus configuraciones. Solo debes ejecutar nuevamente el instalador (`./install.sh` o `.\install.ps1`) y seleccionar:
