@@ -18,7 +18,104 @@ LOG_FILE="/tmp/handtalk_install.log"
 if ! touch "${LOG_FILE}" >/dev/null 2>&1; then
     LOG_FILE="${TMPDIR:-/tmp}/handtalk_install_${USER:-$(id -un 2>/dev/null || echo user)}.log"
 fi
-BIN_DIR="${HOME}/.local/bin"
+# --- Detección de Distribución GNU/Linux y Contexto de Privilegios ---
+DETECTED_DISTRO_NAME="GNU/Linux"
+DETECTED_DISTRO_ID="unknown"
+DETECTED_DISTRO_FAMILY="generic"
+DETECTED_DISTRO_PRETTY="Linux Genérico"
+
+IS_ROOT=0
+IS_SUDO=0
+TARGET_USER=""
+TARGET_HOME=""
+TARGET_UID=""
+TARGET_GID=""
+USER_BIN_DIR=""
+SYS_BIN_DIR="/usr/local/bin"
+USER_DESKTOP_DIR=""
+SYS_DESKTOP_DIR="/usr/share/applications"
+BIN_DIR=""
+
+detect_linux_distro() {
+    DETECTED_DISTRO_NAME="GNU/Linux"
+    DETECTED_DISTRO_ID="unknown"
+    DETECTED_DISTRO_FAMILY="generic"
+    DETECTED_DISTRO_PRETTY="Linux Genérico"
+
+    local os_release_file=""
+    if [ -f "/etc/os-release" ]; then
+        os_release_file="/etc/os-release"
+    elif [ -f "/usr/lib/os-release" ]; then
+        os_release_file="/usr/lib/os-release"
+    fi
+
+    if [ -n "$os_release_file" ]; then
+        local raw_id raw_id_like raw_name raw_pretty
+        raw_id=$((grep -E "^ID=" "$os_release_file" 2>/dev/null || true) | cut -d"=" -f2 | tr -d "\"'\''")
+        raw_id_like=$((grep -E "^ID_LIKE=" "$os_release_file" 2>/dev/null || true) | cut -d"=" -f2 | tr -d "\"'\''")
+        raw_pretty=$((grep -E "^PRETTY_NAME=" "$os_release_file" 2>/dev/null || true) | cut -d"=" -f2- | tr -d "\"'\''")
+        raw_name=$((grep -E "^NAME=" "$os_release_file" 2>/dev/null || true) | cut -d"=" -f2- | tr -d "\"'\''")
+
+        [ -n "$raw_pretty" ] && DETECTED_DISTRO_PRETTY="$raw_pretty" || DETECTED_DISTRO_PRETTY="${raw_name:-Linux}"
+        [ -n "$raw_id" ] && DETECTED_DISTRO_ID="$(echo "$raw_id" | tr '[:upper:]' '[:lower:]')"
+
+        local id_check="${DETECTED_DISTRO_ID} ${raw_id_like}"
+        id_check="$(echo "$id_check" | tr '[:upper:]' '[:lower:]')"
+
+        if [[ "$id_check" =~ (arch|endeavouros|manjaro|garuda|artix|arcolinux) ]]; then
+            DETECTED_DISTRO_FAMILY="arch"
+            DETECTED_DISTRO_NAME="Arch Linux / Derivados"
+        elif [[ "$id_check" =~ (debian|ubuntu|linuxmint|pop|elementary|zorin|kali|raspbian) ]]; then
+            DETECTED_DISTRO_FAMILY="debian"
+            DETECTED_DISTRO_NAME="Debian / Ubuntu / Derivados"
+        elif [[ "$id_check" =~ (fedora|rhel|centos|rocky|almalinux) ]]; then
+            DETECTED_DISTRO_FAMILY="fedora"
+            DETECTED_DISTRO_NAME="Fedora / RHEL"
+        elif [[ "$id_check" =~ (suse|opensuse) ]]; then
+            DETECTED_DISTRO_FAMILY="suse"
+            DETECTED_DISTRO_NAME="openSUSE"
+        else
+            DETECTED_DISTRO_FAMILY="generic"
+            DETECTED_DISTRO_NAME="GNU/Linux Genérico"
+        fi
+    fi
+}
+
+detect_user_context() {
+    IS_ROOT=0
+    IS_SUDO=0
+
+    if [ "$(id -u 2>/dev/null || echo 1000)" -eq 0 ]; then
+        IS_ROOT=1
+    fi
+
+    if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
+        IS_SUDO=1
+        TARGET_USER="${SUDO_USER}"
+        TARGET_HOME="$(getent passwd "${TARGET_USER}" 2>/dev/null | cut -d: -f6 || true)"
+        if [ -z "$TARGET_HOME" ] || [ ! -d "$TARGET_HOME" ]; then
+            TARGET_HOME="${HOME:-/home/${TARGET_USER}}"
+        fi
+        TARGET_UID="$(id -u "${TARGET_USER}" 2>/dev/null || echo 1000)"
+        TARGET_GID="$(id -g "${TARGET_USER}" 2>/dev/null || echo 1000)"
+    else
+        TARGET_USER="${USER:-$(id -un 2>/dev/null || echo user)}"
+        TARGET_HOME="${HOME:-/home/${TARGET_USER}}"
+        TARGET_UID="$(id -u 2>/dev/null || echo 1000)"
+        TARGET_GID="$(id -g 2>/dev/null || echo 1000)"
+    fi
+
+    USER_BIN_DIR="${TARGET_HOME}/.local/bin"
+    SYS_BIN_DIR="/usr/local/bin"
+    USER_DESKTOP_DIR="${TARGET_HOME}/.local/share/applications"
+    SYS_DESKTOP_DIR="/usr/share/applications"
+    BIN_DIR="${USER_BIN_DIR}"
+}
+
+# Inicialización temprana de variables de sistema y usuario
+detect_linux_distro
+detect_user_context
+
 
 # --- Paleta de Colores ANSI y Estilos ---
 C_RESET="\033[0m"
@@ -146,6 +243,7 @@ print_header_banner() {
     print_centered "${C_CYAN}│${C_YELLOW}            Sistema de Reconocimiento y Traducción de Señas            ${C_CYAN}│${C_RESET}"
     print_centered "${C_CYAN}│${C_GRAY}             MediaPipe 0.10.14  •  OpenCV  •  Scikit-Learn             ${C_CYAN}│${C_RESET}"
     print_centered "${C_CYAN}└───────────────────────────────────────────────────────────────────────┘${C_RESET}"
+    print_centered "${C_GRAY}Sistema detectado: ${C_CYAN}${DETECTED_DISTRO_PRETTY}${C_GRAY} (${DETECTED_DISTRO_NAME})${C_RESET}"
     print_centered ""
 }
 
@@ -210,23 +308,99 @@ verify_venv_module() {
     "$python_bin" -c "import venv" >/dev/null 2>&1
 }
 
-# --- Gestión de Atajos CLI en Linux ---
+# --- Gestión de Atajos del Sistema (CLI y Escritorio XDG) en Linux ---
+
+create_desktop_entries() {
+    local shortcuts=("$@")
+
+    # Crear carpeta de aplicaciones del usuario
+    mkdir -p "${USER_DESKTOP_DIR}" 2>/dev/null || true
+    if [ "$IS_ROOT" -eq 1 ] && [ "$IS_SUDO" -eq 1 ]; then
+        chown -R "${TARGET_UID}:${TARGET_GID}" "${USER_DESKTOP_DIR}" 2>/dev/null || true
+    fi
+
+    for item in "${shortcuts[@]}"; do
+        local name target_script desc app_type icon title generic_title
+        name=$(echo "$item" | cut -d':' -f1)
+        target_script=$(echo "$item" | cut -d':' -f2)
+        desc=$(echo "$item" | cut -d':' -f3)
+        app_type=$(echo "$item" | cut -d':' -f4)
+        icon=$(echo "$item" | cut -d':' -f5)
+        title=$(echo "$item" | cut -d':' -f6)
+        generic_title=$(echo "$item" | cut -d':' -f7)
+
+        local exec_cmd=""
+        local terminal_flag="false"
+        local categories="Utility;Accessibility;Education;"
+
+        if [ "$app_type" = "CLI" ]; then
+            terminal_flag="true"
+            categories="Utility;Accessibility;Education;Development;"
+            exec_cmd="bash -c 'cd \"${SCRIPT_DIR}\" && \"${VENV_DIR}/bin/python\" \"${SCRIPT_DIR}/${target_script}\"; echo \"\"; echo \"Presione Enter para salir...\"; read -r dummy'"
+        else
+            terminal_flag="false"
+            exec_cmd="\"${VENV_DIR}/bin/python\" \"${SCRIPT_DIR}/${target_script}\""
+        fi
+
+        local desktop_content="[Desktop Entry]
+Version=1.0
+Type=Application
+Name=${title}
+GenericName=${generic_title}
+Comment=${desc}
+Exec=${exec_cmd}
+Icon=${icon}
+Path=${SCRIPT_DIR}
+Terminal=${terminal_flag}
+Categories=${categories}
+StartupNotify=true
+"
+        # Guardar en aplicaciones del usuario
+        local user_desktop_file="${USER_DESKTOP_DIR}/${name}.desktop"
+        echo "$desktop_content" > "${user_desktop_file}"
+        chmod 644 "${user_desktop_file}" 2>/dev/null || true
+        if [ "$IS_ROOT" -eq 1 ] && [ "$IS_SUDO" -eq 1 ]; then
+            chown "${TARGET_UID}:${TARGET_GID}" "${user_desktop_file}" 2>/dev/null || true
+        fi
+
+        # Si es root y el directorio es escribible, guardar también a nivel sistema
+        if [ "$IS_ROOT" -eq 1 ] && [ -d "${SYS_DESKTOP_DIR}" ] && [ -w "${SYS_DESKTOP_DIR}" ]; then
+            local sys_desktop_file="${SYS_DESKTOP_DIR}/${name}.desktop"
+            echo "$desktop_content" > "${sys_desktop_file}" 2>/dev/null || true
+            chmod 644 "${sys_desktop_file}" 2>/dev/null || true
+        fi
+    done
+
+    # Actualizar bases de datos de escritorio si existe la utilidad
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database "${USER_DESKTOP_DIR}" 2>/dev/null || true
+        if [ "$IS_ROOT" -eq 1 ] && [ -d "${SYS_DESKTOP_DIR}" ] && [ -w "${SYS_DESKTOP_DIR}" ]; then
+            update-desktop-database "${SYS_DESKTOP_DIR}" 2>/dev/null || true
+        fi
+    fi
+}
 
 create_cli_shortcuts() {
-    mkdir -p "${BIN_DIR}"
-
+    # Definición de atajos: nombre:script:descripcion:tipo:icono:titulo:titulo_generico
     local shortcuts=(
-        "handtalk-captura:inicio/gui_captura.py:Captura y recolección de señas personalizadas"
-        "handtalk-entrenar:inicio/train_classifier.py:Entrenamiento del clasificador de señas"
-        "handtalk-traducir:inicio/realtime_translator.py:Traducción de señas en vivo con cámara"
+        "handtalk-captura:inicio/gui_captura.py:Captura y recolección de señas personalizadas:GUI:camera-web:HandTalk - Captura:Captura de Señas"
+        "handtalk-entrenar:inicio/train_classifier.py:Entrenamiento del clasificador de señas:CLI:utilities-terminal:HandTalk - Entrenar:Entrenar Clasificador"
+        "handtalk-traducir:inicio/realtime_translator.py:Traducción de señas en vivo con cámara:GUI:camera-web:HandTalk - Traducir:Traductor en Vivo"
     )
 
+    # 1. Crear carpeta ~/.local/bin para el usuario
+    mkdir -p "${USER_BIN_DIR}"
+    if [ "$IS_ROOT" -eq 1 ] && [ "$IS_SUDO" -eq 1 ]; then
+        chown "${TARGET_UID}:${TARGET_GID}" "${USER_BIN_DIR}" 2>/dev/null || true
+    fi
+
+    # 2. Generar scripts ejecutables en ~/.local/bin
     for item in "${shortcuts[@]}"; do
         local name target_script desc
         name=$(echo "$item" | cut -d':' -f1)
         target_script=$(echo "$item" | cut -d':' -f2)
         desc=$(echo "$item" | cut -d':' -f3)
-        local shortcut_path="${BIN_DIR}/${name}"
+        local shortcut_path="${USER_BIN_DIR}/${name}"
 
         cat <<EOF > "${shortcut_path}"
 #!/usr/bin/env bash
@@ -240,46 +414,176 @@ cd "\${PROJECT_DIR}" || exit 1
 exec "\${PROJECT_DIR}/venv/bin/python" "\${PROJECT_DIR}/${target_script}" "\$@"
 EOF
         chmod +x "${shortcut_path}"
+        if [ "$IS_ROOT" -eq 1 ] && [ "$IS_SUDO" -eq 1 ]; then
+            chown "${TARGET_UID}:${TARGET_GID}" "${shortcut_path}" 2>/dev/null || true
+        fi
     done
 
-    # Asegurar que ~/.local/bin esté en el PATH del usuario
+    # 3. Instalación Global en /usr/local/bin (Esencial en Debian/Ubuntu y ejecuciones con permisos root)
+    if [ "$IS_ROOT" -eq 1 ] || [ -w "${SYS_BIN_DIR}" ]; then
+        mkdir -p "${SYS_BIN_DIR}" 2>/dev/null || true
+        if [ -w "${SYS_BIN_DIR}" ]; then
+            for item in "${shortcuts[@]}"; do
+                local name target_script desc
+                name=$(echo "$item" | cut -d':' -f1)
+                target_script=$(echo "$item" | cut -d':' -f2)
+                desc=$(echo "$item" | cut -d':' -f3)
+                local sys_shortcut_path="${SYS_BIN_DIR}/${name}"
+
+                cat <<EOF > "${sys_shortcut_path}"
+#!/usr/bin/env bash
+# ==============================================================================
+# HandTalk Launcher Global: ${name}
+# ${desc}
+# ==============================================================================
+set -e
+PROJECT_DIR="${SCRIPT_DIR}"
+cd "\${PROJECT_DIR}" || exit 1
+exec "\${PROJECT_DIR}/venv/bin/python" "\${PROJECT_DIR}/${target_script}" "\$@"
+EOF
+                chmod 755 "${sys_shortcut_path}" 2>/dev/null || true
+            done
+        fi
+    fi
+
+    # 4. Compatibilidad extra para Debian/Ubuntu (ruta ~/bin cuando no es root)
+    if [ "$DETECTED_DISTRO_FAMILY" = "debian" ] && [ "$IS_ROOT" -eq 0 ]; then
+        if [ -d "${TARGET_HOME}/bin" ] || grep -q '\$HOME/bin' "${TARGET_HOME}/.profile" 2>/dev/null; then
+            mkdir -p "${TARGET_HOME}/bin" 2>/dev/null || true
+            for item in "${shortcuts[@]}"; do
+                local name
+                name=$(echo "$item" | cut -d':' -f1)
+                ln -sf "${USER_BIN_DIR}/${name}" "${TARGET_HOME}/bin/${name}" 2>/dev/null || true
+            done
+        fi
+    fi
+
+    # 5. Si es root y el directorio es escribible, configurar /etc/profile.d/handtalk.sh
+    if [ "$IS_ROOT" -eq 1 ] && [ -d "/etc/profile.d" ] && [ -w "/etc/profile.d" ]; then
+        cat <<'EOF' > /etc/profile.d/handtalk.sh 2>/dev/null || true
+# HandTalk System PATH
+case ":${PATH}:" in
+    *":/usr/local/bin:"*) ;;
+    *) export PATH="/usr/local/bin:${PATH}" ;;
+esac
+EOF
+        chmod 644 /etc/profile.d/handtalk.sh 2>/dev/null || true
+    fi
+
+    # 6. Generar atajos de escritorio (.desktop) en el menú del sistema
+    create_desktop_entries "${shortcuts[@]}"
+
+    # 7. Asegurar que ~/.local/bin esté en el PATH del usuario
     local marker_start="# >>> HandTalk CLI PATH >>>"
     local marker_end="# <<< HandTalk CLI PATH <<<"
     local path_line='export PATH="$HOME/.local/bin:$PATH"'
 
-    # Añadir a la sesión actual
+    # Añadir a la sesión actual del proceso
     case ":${PATH}:" in
-        *":${BIN_DIR}:"*) ;;
-        *) export PATH="${BIN_DIR}:${PATH}" ;;
+        *":${USER_BIN_DIR}:"*) ;;
+        *) export PATH="${USER_BIN_DIR}:${PATH}" ;;
+    esac
+    case ":${PATH}:" in
+        *":${SYS_BIN_DIR}:"*) ;;
+        *) export PATH="${SYS_BIN_DIR}:${PATH}" ;;
     esac
 
-    # Persistir en archivos rc disponibles
-    for rc in "${HOME}/.bashrc" "${HOME}/.zshrc" "${HOME}/.profile"; do
+    # Persistir en archivos rc disponibles del usuario
+    local rc_files=(
+        "${TARGET_HOME}/.bashrc"
+        "${TARGET_HOME}/.profile"
+        "${TARGET_HOME}/.bash_profile"
+        "${TARGET_HOME}/.bash_login"
+        "${TARGET_HOME}/.zshrc"
+    )
+
+    for rc in "${rc_files[@]}"; do
         if [ -f "$rc" ]; then
-            if ! grep -Fq "$marker_start" "$rc"; then
+            if ! grep -Fq "$marker_start" "$rc" 2>/dev/null; then
                 printf "\n%s\n%s\n%s\n" "$marker_start" "$path_line" "$marker_end" >> "$rc"
+                if [ "$IS_ROOT" -eq 1 ] && [ "$IS_SUDO" -eq 1 ]; then
+                    chown "${TARGET_UID}:${TARGET_GID}" "$rc" 2>/dev/null || true
+                fi
             fi
         fi
     done
+
+    # Soporte para Fish shell si existe configuración
+    local fish_config="${TARGET_HOME}/.config/fish/config.fish"
+    if [ -f "$fish_config" ]; then
+        if ! grep -Fq "HandTalk" "$fish_config" 2>/dev/null; then
+            printf "\n# HandTalk PATH\nfish_add_path %s\n" "${USER_BIN_DIR}" >> "$fish_config"
+            if [ "$IS_ROOT" -eq 1 ] && [ "$IS_SUDO" -eq 1 ]; then
+                chown "${TARGET_UID}:${TARGET_GID}" "$fish_config" 2>/dev/null || true
+            fi
+        fi
+    fi
+
+    # 8. Corregir propiedad del entorno virtual si se ejecutó con sudo
+    if [ "$IS_ROOT" -eq 1 ] && [ "$IS_SUDO" -eq 1 ]; then
+        chown -R "${TARGET_UID}:${TARGET_GID}" "${VENV_DIR}" 2>/dev/null || true
+        chown -R "${TARGET_UID}:${TARGET_GID}" "${SCRIPT_DIR}/inicio" 2>/dev/null || true
+    fi
 }
 
 remove_cli_shortcuts() {
     local shortcuts=("handtalk-captura" "handtalk-entrenar" "handtalk-traducir")
+
+    # 1. Eliminar ejecutables CLI de carpetas de usuario y sistema
     for name in "${shortcuts[@]}"; do
-        local shortcut_path="${BIN_DIR}/${name}"
-        if [ -f "${shortcut_path}" ]; then
-            rm -f "${shortcut_path}"
+        [ -f "${USER_BIN_DIR}/${name}" ] && rm -f "${USER_BIN_DIR}/${name}"
+        [ -f "${TARGET_HOME}/bin/${name}" ] && rm -f "${TARGET_HOME}/bin/${name}"
+        if [ "$IS_ROOT" -eq 1 ] || [ -w "${SYS_BIN_DIR}" ]; then
+            [ -f "${SYS_BIN_DIR}/${name}" ] && rm -f "${SYS_BIN_DIR}/${name}"
         fi
     done
 
-    # Limpiar líneas de PATH añadidas en rc files
+    # 2. Eliminar atajos .desktop
+    for name in "${shortcuts[@]}"; do
+        [ -f "${USER_DESKTOP_DIR}/${name}.desktop" ] && rm -f "${USER_DESKTOP_DIR}/${name}.desktop"
+        if [ "$IS_ROOT" -eq 1 ] || [ -w "${SYS_DESKTOP_DIR}" ]; then
+            [ -f "${SYS_DESKTOP_DIR}/${name}.desktop" ] && rm -f "${SYS_DESKTOP_DIR}/${name}.desktop"
+        fi
+    done
+
+    # 3. Eliminar /etc/profile.d/handtalk.sh si existe y es escribible
+    if [ "$IS_ROOT" -eq 1 ] && [ -f "/etc/profile.d/handtalk.sh" ] && [ -w "/etc/profile.d" ]; then
+        rm -f "/etc/profile.d/handtalk.sh" 2>/dev/null || true
+    fi
+
+    # 4. Limpiar líneas de PATH añadidas en rc files
     local marker_start="# >>> HandTalk CLI PATH >>>"
     local marker_end="# <<< HandTalk CLI PATH <<<"
-    for rc in "${HOME}/.bashrc" "${HOME}/.zshrc" "${HOME}/.profile"; do
-        if [ -f "$rc" ] && grep -Fq "$marker_start" "$rc"; then
+    local rc_files=(
+        "${TARGET_HOME}/.bashrc"
+        "${TARGET_HOME}/.profile"
+        "${TARGET_HOME}/.bash_profile"
+        "${TARGET_HOME}/.bash_login"
+        "${TARGET_HOME}/.zshrc"
+    )
+    if [ "$IS_ROOT" -eq 1 ]; then
+        rc_files+=("${HOME}/.bashrc" "${HOME}/.profile")
+    fi
+
+    for rc in "${rc_files[@]}"; do
+        if [ -f "$rc" ] && grep -Fq "$marker_start" "$rc" 2>/dev/null; then
             sed -i "/$marker_start/,/$marker_end/d" "$rc" 2>/dev/null || true
         fi
     done
+
+    # Limpiar configuración de Fish Shell si existe
+    local fish_config="${TARGET_HOME}/.config/fish/config.fish"
+    if [ -f "$fish_config" ] && grep -Fq "HandTalk" "$fish_config" 2>/dev/null; then
+        sed -i '/HandTalk/d' "$fish_config" 2>/dev/null || true
+    fi
+
+    # Actualizar bases de datos de escritorio
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database "${USER_DESKTOP_DIR}" 2>/dev/null || true
+        if [ "$IS_ROOT" -eq 1 ] && [ -d "${SYS_DESKTOP_DIR}" ]; then
+            update-desktop-database "${SYS_DESKTOP_DIR}" 2>/dev/null || true
+        fi
+    fi
 }
 
 # --- Acción 1: Instalación Completa ---
@@ -302,10 +606,18 @@ do_installation() {
         print_box_row "${C_YELLOW}Python 3.13+ o <3.10 NO poseen compatibilidad.${C_RESET}" "center"
         print_box_row "" "center"
         print_box_row "${C_CYAN}Instrucciones de instalación según su distribución:${C_RESET}" "left"
-        print_box_row "  • Ubuntu/Debian:  sudo apt install python3.11 python3.11-venv" "left_tight"
-        print_box_row "  • Arch Linux:     sudo pacman -S python311 (o via pyenv/AUR)" "left_tight"
-        print_box_row "  • Fedora:         sudo dnf install python3.11" "left_tight"
-        print_box_row "  • pyenv:          pyenv install 3.11.9 && pyenv local 3.11.9" "left_tight"
+        if [ "$DETECTED_DISTRO_FAMILY" = "debian" ]; then
+            print_box_row "  • Detectado Debian/Ubuntu: sudo apt install python3.11 python3.11-venv" "left_tight"
+        elif [ "$DETECTED_DISTRO_FAMILY" = "arch" ]; then
+            print_box_row "  • Detectado Arch/Endeavour: sudo pacman -S python311 (o via AUR/pyenv)" "left_tight"
+        elif [ "$DETECTED_DISTRO_FAMILY" = "fedora" ]; then
+            print_box_row "  • Detectado Fedora/RHEL:   sudo dnf install python3.11" "left_tight"
+        else
+            print_box_row "  • Ubuntu/Debian:  sudo apt install python3.11 python3.11-venv" "left_tight"
+            print_box_row "  • Arch Linux:     sudo pacman -S python311 (o via pyenv/AUR)" "left_tight"
+            print_box_row "  • Fedora:         sudo dnf install python3.11" "left_tight"
+        fi
+        print_box_row "  • pyenv universal: pyenv install 3.11.9 && pyenv local 3.11.9" "left_tight"
         print_box_bottom
         wait_enter
         return 1
@@ -381,10 +693,19 @@ do_installation() {
     print_centered "      ${C_GREEN}✓${C_WHITE} Dependencias instaladas correctamente.${C_RESET}"
     print_centered ""
 
-    # 5. Creación de Atajos CLI
-    print_centered "${C_CYAN}[5/5]${C_WHITE} Generando atajos de terminal en ${C_GRAY}~/.local/bin${C_RESET}..."
+    # 5. Creación de Atajos CLI y del Sistema
+    print_centered "${C_CYAN}[5/5]${C_WHITE} Configurando atajos del sistema para ${C_BOLD}${DETECTED_DISTRO_PRETTY}${C_RESET}..."
     create_cli_shortcuts
-    print_centered "      ${C_GREEN}✓${C_WHITE} Atajos configurados con permisos de ejecución.${C_RESET}"
+    if [ "$DETECTED_DISTRO_FAMILY" = "debian" ]; then
+        if [ "$IS_ROOT" -eq 1 ]; then
+            print_centered "      ${C_GREEN}✓${C_WHITE} Atajos CLI instalados en ${C_CYAN}/usr/local/bin${C_WHITE} y ${C_CYAN}~/.local/bin${C_RESET}"
+        else
+            print_centered "      ${C_GREEN}✓${C_WHITE} Atajos CLI creados en ${C_CYAN}~/.local/bin${C_WHITE} y variables PATH actualizadas.${C_RESET}"
+        fi
+    else
+        print_centered "      ${C_GREEN}✓${C_WHITE} Atajos CLI configurados en ${C_CYAN}~/.local/bin${C_WHITE} con permisos de ejecución.${C_RESET}"
+    fi
+    print_centered "      ${C_GREEN}✓${C_WHITE} Atajos de escritorio creados en ${C_GRAY}~/.local/share/applications${C_RESET}"
     print_centered ""
 
     # 6. Verificación Post-Instalación (Smoke Test)
@@ -407,14 +728,23 @@ print('OK')
     print_box_top
     print_box_row "${C_GREEN}${C_BOLD}¡INSTALACIÓN COMPLETADA CON ÉXITO!${C_RESET}" "center"
     print_box_sep
+    print_box_row "${C_CYAN}Distribución detectada: ${C_WHITE}${DETECTED_DISTRO_PRETTY}${C_RESET}" "center"
+    print_box_sep
     print_box_row "${C_WHITE}Ya puede invocar HandTalk directamente desde cualquier terminal:${C_RESET}" "center"
     print_box_row "" "center"
     print_box_row "${C_CYAN}  1. handtalk-captura   ${C_GRAY}→ Captura y recolección de señas${C_RESET}" "left_tight"
     print_box_row "${C_CYAN}  2. handtalk-entrenar  ${C_GRAY}→ Entrenamiento del clasificador${C_RESET}" "left_tight"
     print_box_row "${C_CYAN}  3. handtalk-traducir  ${C_GRAY}→ Traducción en tiempo real (cámara)${C_RESET}" "left_tight"
     print_box_row "" "center"
-    print_box_row "${C_GRAY}Nota: Si abre una terminal nueva y no detecta los comandos,${C_RESET}" "center"
-    print_box_row "${C_GRAY}ejecute: source ~/.bashrc (o reinicie la sesión de consola).${C_RESET}" "center"
+    print_box_row "${C_WHITE}También disponibles en el menú de aplicaciones de su sistema.${C_RESET}" "center"
+    print_box_row "" "center"
+    if [ "$DETECTED_DISTRO_FAMILY" = "debian" ] && [ "$IS_ROOT" -eq 0 ]; then
+        print_box_row "${C_YELLOW}Nota Debian:${C_RESET} ${C_GRAY}Si una terminal nueva no detecta los comandos,${C_RESET}" "center"
+        print_box_row "${C_GRAY}ejecute: source ~/.bashrc (o reinicie la sesión de usuario).${C_RESET}" "center"
+    else
+        print_box_row "${C_GRAY}Nota: Si abre una terminal nueva y no detecta los comandos,${C_RESET}" "center"
+        print_box_row "${C_GRAY}ejecute: source ~/.bashrc (o reinicie la sesión de consola).${C_RESET}" "center"
+    fi
     print_box_bottom
 
     wait_enter
@@ -444,11 +774,11 @@ do_update_dependencies() {
         return 1
     fi
 
-    # 2. Validación de Pre-requisito: Atajos CLI
+    # 2. Validación de Pre-requisito: Atajos del Sistema
     local shortcuts=("handtalk-captura" "handtalk-entrenar" "handtalk-traducir")
     local missing_shortcuts=0
     for name in "${shortcuts[@]}"; do
-        if [ ! -f "${BIN_DIR}/${name}" ]; then
+        if [ ! -f "${USER_BIN_DIR}/${name}" ] && [ ! -f "${SYS_BIN_DIR}/${name}" ] && ! command -v "${name}" >/dev/null 2>&1; then
             missing_shortcuts=1
             break
         fi
@@ -456,9 +786,9 @@ do_update_dependencies() {
 
     if [ "$missing_shortcuts" -eq 1 ]; then
         print_box_top
-        print_box_row "${C_RED}✗ ERROR: ATAJOS CLI NO ENCONTRADOS${C_RESET}" "center"
+        print_box_row "${C_RED}✗ ERROR: ATAJOS DE SISTEMA NO ENCONTRADOS${C_RESET}" "center"
         print_box_sep
-        print_box_row "${C_WHITE}No se encontraron los atajos globales en ~/.local/bin.${C_RESET}" "center"
+        print_box_row "${C_WHITE}No se encontraron los atajos instalados en el sistema.${C_RESET}" "center"
         print_box_row "${C_YELLOW}El sistema requiere que la instalación inicial esté completa.${C_RESET}" "center"
         print_box_row "" "center"
         print_box_row "${C_CYAN}Solución recomendada:${C_RESET}" "left"
@@ -561,7 +891,7 @@ do_uninstallation() {
         print_centered "      ${C_GRAY}ℹ No se encontró carpeta venv/.${C_RESET}"
     fi
 
-    print_centered "${C_CYAN}[2/3]${C_WHITE} Eliminando atajos de terminal en ~/.local/bin...${C_RESET}"
+    print_centered "${C_CYAN}[2/3]${C_WHITE} Eliminando atajos de terminal y del sistema...${C_RESET}"
     remove_cli_shortcuts
     print_centered "      ${C_GREEN}✓${C_WHITE} Atajos eliminados.${C_RESET}"
 
