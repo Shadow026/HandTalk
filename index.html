@@ -16,20 +16,31 @@
         }
         h1 { margin: 12px 0; font-size: 18px; }
 
-        /* Contenedor que agrupa video + subtítulo superpuesto */
         .visor {
             position: relative;
             width: 100%;
             max-width: 640px;
         }
 
-        #camara {
+        /* video = la cámara del PROPIO celular, mostrada localmente */
+        #video {
             width: 100%;
             display: block;
             border-radius: 8px;
+            background: #000;
         }
 
-        /* El subtítulo va POSICIONADO ENCIMA del video, no dentro de la imagen */
+        /* stream de respaldo: la cámara de la PC, solo se muestra si falla getUserMedia */
+        #stream {
+            width: 100%;
+            display: none;
+            border-radius: 8px;
+            background: #000;
+        }
+
+        /* canvas oculto: solo se usa para capturar frames, no se muestra */
+        #canvas { display: none; }
+
         #subtitulo {
             position: absolute;
             bottom: 20px;
@@ -57,58 +68,138 @@
     <h1>HandTalk — Visor en Vivo</h1>
 
     <div class="visor">
-        <!-- STREAM DE VIDEO: una imagen que el navegador refresca sola (MJPEG) -->
-        <!-- El src se asigna por JavaScript para que use la IP/host real, no localhost -->
-        <img id="camara" alt="Cámara en vivo">
-
-        <!-- SUBTÍTULO: se actualiza por WebSocket, independiente del video -->
+        <video id="video" autoplay playsinline muted></video>
+        <img id="stream" alt="Cámara del servidor (respaldo)">
+        <canvas id="canvas"></canvas>
         <div id="subtitulo"></div>
     </div>
 
-    <div id="estado">Conectando...</div>
+    <div id="estado">Solicitando cámara...</div>
 
     <script>
+        const video = document.getElementById("video");
+        const streamImg = document.getElementById("stream");
+        const canvas = document.getElementById("canvas");
+        const contexto = canvas.getContext("2d");
         const subtitulo = document.getElementById("subtitulo");
         const estado = document.getElementById("estado");
 
-        // window.location.host toma automáticamente la IP y puerto reales
-        // desde donde se cargó esta página (PC o celular), sin escribirlo a mano.
-        const host = window.location.host; // ej: "192.168.1.45:8000"
+        const host = window.location.host; // IP:puerto reales, sin hardcodear
+        // Si la página se sirve por https, el WebSocket debe ser wss (no ws)
+        const protocolo = window.location.protocol === "https:" ? "wss" : "ws";
+        let ws;
+        let enviandoFrames = false;
 
-        // Asignamos el stream dinámicamente con la misma lógica
-        document.getElementById("camara").src = `http://${host}/stream`;
+        // Cada cuánto se manda un frame al backend (ms). 200ms = 5 frames/segundo.
+        // No hace falta mandar a 30 FPS: el modelo de señas no necesita tanta
+        // frecuencia, y así se ahorra ancho de banda y batería del celular.
+        const INTERVALO_MS = 200;
 
-        // Mismo patrón que tu ejemplo de chat, pero para recibir la palabra traducida
-        const ws = new WebSocket(`ws://${host}/ws/translations`);
+        function conectarWebSocket() {
+            ws = new WebSocket(`${protocolo}://${host}/ws/translations`);
 
-        ws.onopen = () => {
-            estado.textContent = "Conectado";
-        };
+            ws.onopen = () => {
+                estado.textContent = "Conectado. Enviando frames...";
+                enviandoFrames = true;
+                enviarFramesEnBucle();
+            };
 
-        ws.onmessage = (event) => {
-            // Se espera un JSON: {"word": "HOLA", "confidence": 0.95}
-            try {
-                const data = JSON.parse(event.data);
-                // IMPORTANTE: textContent, nunca innerHTML (evita inyección de HTML/JS)
-                subtitulo.textContent = data.word;
-            } catch (e) {
-                // Si llega texto plano en vez de JSON, lo mostramos igual
-                subtitulo.textContent = event.data;
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === "word") {
+                        subtitulo.textContent = data.word;
+                    }
+                } catch (e) {
+                    subtitulo.textContent = event.data;
+                }
+            };
+
+            ws.onclose = () => {
+                estado.textContent = "Conexión cerrada";
+                enviandoFrames = false;
+            };
+
+            ws.onerror = () => {
+                estado.textContent = "Error de conexión";
+            };
+        }
+
+        function enviarFramesEnBucle() {
+            if (!enviandoFrames) return;
+
+            if (ws.readyState === WebSocket.OPEN && video.videoWidth > 0) {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                contexto.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                // Se manda como JPEG en base64 dentro de un JSON,
+                // junto con un "type" para que el backend sepa qué es.
+                const dataUrl = canvas.toDataURL("image/jpeg", 0.6); // calidad 0.6 = menos peso
+                ws.send(JSON.stringify({ type: "frame", data: dataUrl }));
             }
-        };
 
-        ws.onclose = () => {
-            estado.textContent = "Conexión cerrada";
-        };
+            setTimeout(enviarFramesEnBucle, INTERVALO_MS);
+        }
 
-        ws.onerror = () => {
-            estado.textContent = "Error de conexión";
-        };
+        async function iniciarCamara() {
+            estado.textContent = "Solicitando permiso de cámara...";
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "environment" }, // cámara trasera si existe
+                    audio: false,
+                });
+                video.srcObject = stream;
+                estado.textContent = "Permiso concedido. Conectando al servidor...";
+                console.log("Permiso de cámara concedido");
+                conectarWebSocket();
+            } catch (err) {
+                console.error("Error de cámara:", err);
+                console.log("Activando stream de respaldo desde el servidor");
+                activarStreamDeRespaldo();
+            }
+        }
 
-        // Si la imagen del stream falla en cargar (servidor caído, sin cámara, etc.)
-        document.getElementById("camara").onerror = () => {
-            estado.textContent = "No se pudo cargar el video";
-        };
+        function activarStreamDeRespaldo() {
+            // Oculta el video local (no hay cámara del celular disponible)
+            video.style.display = "none";
+
+            // Muestra el stream MJPEG que viene del servidor
+            streamImg.src = `${window.location.protocol}//${host}/visor`;
+            streamImg.style.display = "block";
+
+            estado.textContent = "Usando cámara del servidor. Conectando...";
+
+            // El WebSocket sigue conectándose para recibir el texto traducido,
+            // pero NO se activa el envío de frames: aquí ya no hay cámara local
+            // que capturar, el servidor traduce con su propia webcam.
+            ws = new WebSocket(`${protocolo}://${host}/ws/translations`);
+
+            ws.onopen = () => {
+                estado.textContent = "Conectado (modo respaldo)";
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === "word") {
+                        subtitulo.textContent = data.word;
+                    }
+                } catch (e) {
+                    subtitulo.textContent = event.data;
+                }
+            };
+
+            ws.onclose = () => {
+                estado.textContent = "Conexión cerrada";
+            };
+
+            ws.onerror = () => {
+                estado.textContent = "Error de conexión";
+            };
+        }
+
+        iniciarCamara();
     </script>
 </body>
 </html>
