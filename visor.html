@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HandTalk - Visor</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 0;
+            background: #111;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 { margin: 12px 0; font-size: 18px; }
+
+        /* Contenedor que agrupa video + subtítulo superpuesto */
+        .visor {
+            position: relative;
+            width: 100%;
+            max-width: 640px;
+        }
+
+        #camara {
+            width: 100%;
+            display: block;
+            border-radius: 8px;
+        }
+
+        /* El subtítulo va POSICIONADO ENCIMA del video, no dentro de la imagen */
+        #subtitulo {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 8px 18px;
+            border-radius: 6px;
+            font-size: 22px;
+            font-weight: bold;
+            max-width: 90%;
+            text-align: center;
+            min-height: 1.2em;
+        }
+
+        #estado {
+            margin-top: 10px;
+            font-size: 13px;
+            color: #aaa;
+        }
+    </style>
+</head>
+<body>
+    <h1>HandTalk — Visor en Vivo</h1>
+
+    <div class="visor">
+        <!-- STREAM DE VIDEO: una imagen que el navegador refresca sola (MJPEG) -->
+        <!-- El src se asigna por JavaScript para que use la IP/host real, no localhost -->
+        <img id="camara" alt="Cámara en vivo">
+
+        <!-- SUBTÍTULO: se actualiza por WebSocket, independiente del video -->
+        <div id="subtitulo"></div>
+    </div>
+
+    <div id="estado">Conectando...</div>
+
+    <script>
+        const subtitulo = document.getElementById("subtitulo");
+        const estado = document.getElementById("estado");
+
+        // window.location.host toma automáticamente la IP y puerto reales
+        // desde donde se cargó esta página (PC o celular), sin escribirlo a mano.
+        const host = window.location.host; // ej: "192.168.1.45:8000"
+
+        // Asignamos el stream dinámicamente con la misma lógica
+        document.getElementById("camara").src = `http://${host}/stream`;
+
+        // Mismo patrón que tu ejemplo de chat, pero para recibir la palabra traducida
+        const ws = new WebSocket(`ws://${host}/ws/translations`);
+
+        ws.onopen = () => {
+            estado.textContent = "Conectado";
+        };
+
+        ws.onmessage = (event) => {
+            // Se espera un JSON: {"word": "HOLA", "confidence": 0.95}
+            try {
+                const data = JSON.parse(event.data);
+                // IMPORTANTE: textContent, nunca innerHTML (evita inyección de HTML/JS)
+                subtitulo.textContent = data.word;
+            } catch (e) {
+                // Si llega texto plano en vez de JSON, lo mostramos igual
+                subtitulo.textContent = event.data;
+            }
+        };
+
+        ws.onclose = () => {
+            estado.textContent = "Conexión cerrada";
+        };
+
+        ws.onerror = () => {
+            estado.textContent = "Error de conexión";
+        };
+
+        // Si la imagen del stream falla en cargar (servidor caído, sin cámara, etc.)
+        document.getElementById("camara").onerror = () => {
+            estado.textContent = "No se pudo cargar el video";
+        };
+    </script>
+</body>
+</html>
