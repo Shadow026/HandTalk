@@ -1,80 +1,98 @@
-# 📝 Estado del Proyecto: HandTalk (Streaming de Cámara)
+# STATUS.md — Estado Actual del Visor Web (HandTalk)
 
-Este documento resume los logros técnicos alcanzados hasta la fecha y las consideraciones críticas de infraestructura para la captura de video en tiempo real.
+
+## 1. Qué hace ahora mismo
+
+- El servidor abre la webcam de la **PC** con OpenCV y la transmite como video (MJPEG) a cualquier dispositivo que entre a la página.
+- El texto de la traducción se manda por WebSocket, independiente del video, y se muestra como subtítulo superpuesto.
+- Actualmente el texto es de **prueba** (`demo_loop`): manda una palabra distinta cada 3 segundos, para verificar que el flujo completo funciona antes de conectar el modelo real de señas.
+- **No** se usa la cámara del celular en esta versión — por eso funciona en HTTP normal, sin restricciones de navegador.
 
 ---
 
-## 🚀 Guía de Lanzamiento y Acceso
+## 2. Estructura de archivos necesaria
 
-Para ejecutar el servidor y acceder desde un dispositivo móvil, sigue estos pasos:
-
-### 1. Iniciar el Servidor
-Ejecuta el siguiente comando en tu terminal desde la carpeta raíz del proyecto:
-
-```bash
-uvicorn server:app --reload --host 0.0.0.0 --port 8000
+```
+HandTalk/
+├── web_server.py       <- Backend FastAPI (servidor + stream + websocket)
+├── visor.html           <- Página que ve el celular/navegador
+├── generar_qr.py         <- Script para obtener el enlace + QR
 ```
 
-**¿Qué significan estos parámetros?**
-- `--reload`: Reinicia el servidor automáticamente cada vez que guardes un cambio en el código.
-- `--host 0.0.0.0`: Indica que el servidor debe escuchar en **todas las interfaces de red**. Esto es lo que permite que tu celular (que está en otra IP) pueda conectar con tu PC.
-- `--port 8000`: El puerto estándar donde correrá la aplicación.
-
-### 2. Acceso desde el Celular (QR)
-Para no escribir la IP manualmente en el móvil, lo más rápido es generar un código QR:
-
-1. **Obtén tu IP Local:** 
-   - En Windows: abre la terminal y escribe `ipconfig`. Busca la "Dirección IPv4" (ej. `192.168.1.15`).
-   - En Linux/Mac: escribe `ifconfig` o `ip addr`.
-2. **Crea la URL de acceso:** 
-   - Combina tu IP con el puerto: `http://192.168.x.x:8000`
-3. **Genera el QR:**
-   - Copia esa URL y pégala en cualquier generador de QR gratuito (como [qr-code-generator.com](https://www.qr-code-generator.com/) o similares).
-   - Escanea el código con la cámara de tu celular.
+Los tres archivos deben estar en la **misma carpeta**, porque `web_server.py` sirve `visor.html` directamente desde ahí (`FileResponse("visor.html")`), y `generar_qr.py` genera el QR apuntando al mismo puerto que usa `web_server.py`.
+La estrcutura de estos archivos puede cambiar pero para pruebas es suficiente por ahora.
 
 ---
 
-## 🚨 ALERTA CRÍTICA: Restricciones de Cámara (HTTP vs HTTPS)
+## 3. Cómo funciona cada parte
 
-Es fundamental entender que la funcionalidad principal de la aplicación (el uso de la cámara del dispositivo) depende enteramente del protocolo de conexión debido a las políticas de **Secure Contexts** de los navegadores modernos (Chrome, Safari, Firefox).
+### `web_server.py` (backend)
+| Ruta | Qué hace |
+|---|---|
+| `GET /` | Sirve `visor.html` |
+| `GET /stream` | Transmite la webcam de la PC en formato MJPEG (multipart) |
+| `WS /ws/translations` | Mantiene la conexión abierta y manda la palabra traducida en JSON cada vez que hay una nueva |
 
-### 🛑 El Problema
-El acceso a la cámara mediante `getUserMedia` **está estrictamente prohibido** en páginas cargadas vía `http://` para cualquier dirección que no sea `localhost`.
+### `visor.html` (frontend)
+- Muestra el `<img>` con el stream de la webcam (`src` se arma dinámicamente con `window.location.host`, no está hardcodeado).
+- Se conecta al WebSocket y muestra la palabra recibida en un `<div>` superpuesto con `textContent` (nunca `innerHTML`, por seguridad).
 
-**¿Qué significa esto en la práctica?**
-*   **En tu PC (`http://localhost:8000`):** La cámara **SÍ** funciona.
-*   **En tu Celular (`http://192.168.x.x:8000`):** La cámara **NO** funcionará. El navegador bloqueará la solicitud por razones de seguridad, impidiendo que el celular envíe frames al servidor.
-
-### ✅ La Solución: HTTPS es Obligatorio
-Para que un dispositivo móvil pueda activar su cámara y enviar el stream al servidor, la conexión **DEBE** ser segura (`https://`).
-
-| Escenario | Protocolo | ¿Cámara Local? | Acción Requerida |
-| :--- | :--- | :--- | :--- |
-| Pruebas locales | `http://localhost` | ✅ Sí | Ninguna. |
-| Pruebas móvil $\rightarrow$ PC | `http://IP_Local` | ❌ **No** | **Implementar HTTPS** (ej. Ngrok). |
-| Despliegue Final | `https://dominio.com` | ✅ Sí | Certificado SSL activo. |
-
-### 🛠️ Cómo solucionar esto para pruebas rápidas
-Para evitar configurar certificados SSL complejos en desarrollo, se recomienda usar **túneles HTTPS**:
-1. **Ngrok / Cloudflare Tunnel:** Estas herramientas crean una URL pública segura (`https://random-id.ngrok-free.app`) que redirige el tráfico a tu puerto 8000 local. 
-2. Al entrar desde el celular a esa URL HTTPS, el navegador permitirá el acceso a la cámara.
+### `generar_qr.py`
+- Detecta automáticamente la IP de la PC en la red local (sin tocar el gateway ni la tabla de rutas).
+- Genera `qr_visor.png` con el enlace `http://<IP>:8000`.
+- También imprime el QR directamente en la terminal en ASCII, para probarlo sin abrir ningún archivo.
 
 ---
 
-## ✅ Logros Alcanzados
+## 4. Dependencias anexadas
 
-### 1. Arquitectura de "Flujo Invertido"
-Se ha implementado un sistema donde el cliente (celular/navegador) es el emisor activo y el servidor es el procesador.
-- **Captura Local:** El navegador accede a la cámara del dispositivo mediante la API `getUserMedia`.
-- **Extracción de Frames:** Se implementó un bucle de captura usando un `canvas` oculto que extrae frames del video cada 200ms (5 FPS), optimizando el ancho de banda.
-- **Transporte Eficiente:** Los frames se convierten a JPEG (calidad 0.6) y se envían como cadenas Base64 dentro de objetos JSON a través de WebSockets.
+```bash
+pip install fastapi uvicorn[standard] 
+opencv-python 
+qrcode[pil]
+```
 
-### 2. Backend de Procesamiento (FastAPI)
-- **Endpoint de Traducción:** Implementación de `/ws/translations` para recibir frames y devolver resultados de traducción.
-- **Pipeline de Decodificación:** El servidor decodifica la cadena Base64 y la convierte en un array de NumPy/OpenCV, dejándolo listo para ser procesado por un modelo de IA.
-- **Gestión de Conexiones:** Soporte para múltiples clientes simultáneos y manejo de desconexiones limpias.
+---
 
-### 3. Sistema de Respaldo (Fallback)
-Para mitigar el problema de HTTPS mencionado arriba, se implementó una solución de emergencia:
-- **Modo Visor:** Si el cliente detecta que no puede acceder a su propia cámara (típico en HTTP), el servidor activa la webcam de la PC y envía el stream via MJPEG (`/visor`).
-- **Sincronización:** El sistema mantiene la conexión WebSocket para enviar las traducciones aunque se esté usando la cámara del servidor.
+## 5. Pasos para levantarlo
+
+### Paso 1 — Levantar el servidor
+Desde la carpeta donde están los tres archivos:
+
+```bash
+uvicorn web_server:app --host 0.0.0.0 --port 8000 --reload
+```
+
+**Importante:** el `--host 0.0.0.0` es obligatorio. Sin él, uvicorn solo escucha en `127.0.0.1` y ningún otro dispositivo de la red puede conectarse, aunque el firewall esté bien configurado.
+
+Deberías ver algo como:
+```
+Uvicorn running on http://0.0.0.0:8000
+```
+
+### Paso 2 — Generar el QR (en otra terminal, con el servidor ya corriendo)
+
+```bash
+python generar_qr.py
+```
+
+Esto imprime la IP detectada, guarda `qr_visor.png`, y muestra el QR en la terminal:
+```
+IP detectada:  192.168.1.45
+Enlace visor:  http://192.168.1.45:8000
+QR guardado en: qr_visor.png
+```
+
+### Paso 3 — Probar
+1. Desde la misma PC: abre `http://localhost:8000` en el navegador — deberías ver tu propia webcam con un subtítulo de prueba cambiando cada 3 segundos.
+2. Desde el celular (misma red Wi-Fi): escanea el QR o entra manualmente a la URL que imprimió `generar_qr.py`.
+
+Si el celular no carga la página, revisa primero:
+- Que el celular esté en la **misma red Wi-Fi** que la PC.
+- Que el firewall de Windows/Linux permita conexiones entrantes al puerto 8000 (regla de red privada).
+
+---
+
+## 6. Pendiente / próximos pasos
+
+- [ ] Reemplazar `demo_loop` por la llamada real desde el motor de traducción (`on_translation_confirmed` de `EVENTOS.md`).
