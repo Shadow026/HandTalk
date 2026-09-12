@@ -9,3 +9,8 @@ numpy>=1.24.0
 
 # Interfaz grafica
 Pillow>=10.0.0
+
+
+# Servidor web y utils
+fastapi>=0.110.0
+qrcode[pil]>=7.4.2  
