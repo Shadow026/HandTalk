@@ -79,7 +79,7 @@ python generar_qr.py
 Esto imprime la IP detectada, guarda `qr_visor.png`, y muestra el QR en la terminal:
 ```
 IP detectada:  192.168.1.45
-Enlace visor:  http://192.168.1.45:8000
+Enlace visor:  http://192.168.1.45:8000/viewer
 QR guardado en: qr_visor.png
 ```
 
@@ -94,5 +94,5 @@ Si el celular no carga la página, revisa primero:
 ---
 
 ## 6. Pendiente / próximos pasos
-
+- [ ] tomar en cuenta el diseño para el live viewer
 - [ ] Reemplazar `demo_loop` por la llamada real desde el motor de traducción (`on_translation_confirmed` de `EVENTOS.md`).

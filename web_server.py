@@ -48,18 +48,60 @@ def generar_frames():
             b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
         )
 
+@app.get("/")
+def index():
+    return FileResponse("index.html")
+
+
+@app.get("/auth/qr")
+def auth_qr():
+    """
+    Uso futuro:
+    Valida token del QR, setea cookie HttpOnly y redirige a /viewer
+    """
+    print("valid qr token")
+
+
+@app.get("/login")
+def login_get():
+    """
+    Uso futuro:
+    Sirve la pantalla para ingresar el PIN si no se usó el QR.
+    """
+    #return FileResponse("login.html")
+    print("Welcome to login")
+
+
+@app.post("/login")
+def login_post():
+    """
+    Uso futuro:
+    Valida el PIN ingresado y genera la cookie de sesión.
+    """
+    #return FileResponse("login.html")
+    print("Welcome to login")
+
+@app.get("/viewer")
+def viewer_get():
+    """
+    Uso futuro:
+    Sirve la página HTML del visor en vivo (diseñada por Wilfredo).
+    """
+    return FileResponse("visor.html")
+    print("live viewer page")
+    
+
 # Queda opcional el uso de mostrar la pantalla del programa
 @app.get("/stream")
 def stream():
+    """
+    Uso Opcional:
+    Sirve el video MJPEG de la webcam(servidor) para el visor en vivo
+    """
     return StreamingResponse(
         generar_frames(),
         media_type="multipart/x-mixed-replace; boundary=frame",
     )
-
-
-@app.get("/")
-def index():
-    return FileResponse("visor.html")
 
 
 @app.websocket("/ws/translations")
@@ -74,6 +116,14 @@ async def ws_translations(websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         clientes_conectados.remove(websocket)
+
+@app.post("/logout")
+def logout():
+    """
+    Uso futuro:
+    Invalida la sesión actual y libera el cupo.
+    """
+    print("Logged out")
 
 
 async def notificar_traduccion(word: str, confidence: float):

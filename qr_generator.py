@@ -60,7 +60,7 @@ def mostrar_qr_en_terminal(url: str):
 
 def main():
     ip = obtener_ip_local()
-    url = f"http://{ip}:{PUERTO}"
+    url = f"http://{ip}:{PUERTO}/viewer"
 
     print(f"IP detectada:  {ip}")
     print(f"Enlace visor:  {url}")
