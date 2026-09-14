@@ -2,27 +2,65 @@
 
 Este proyecto implementa un sistema de reconocimiento de lenguaje de señas donde el usuario define sus propias palabras y gestos. El sistema utiliza landmarks de MediaPipe para garantizar una alta precisión independientemente de la iluminación o el fondo.
 
-## ⚙️ Guía de Configuración del Entorno
+## ⚡ Instalación Rápida y Automática (Recomendado)
 
-Para evitar errores de compatibilidad (especialmente con MediaPipe), sigue estos pasos estrictamente.
+HandTalk incluye instaladores automatizados con menús interactivos que detectan versiones compatibles de Python (3.10, 3.11, 3.12), configuran el entorno virtual `venv`, instalan dependencias y crean atajos globales en tu terminal.
+
+### 🐧 En GNU/Linux (Bash)
+Ejecuta en la terminal desde la carpeta raíz del proyecto:
+```bash
+chmod +x install.sh
+./install.sh
+```
+
+### 🪟 En Microsoft Windows (PowerShell)
+Abre PowerShell en la carpeta raíz del proyecto y ejecuta:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+*(O si ya estás dentro de una sesión de PowerShell)*:
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+.\install.ps1
+```
+
+> **Atajos de Terminal Generados:**
+> Tras la instalación, podrás usar los siguientes comandos desde cualquier terminal sin necesidad de activar manualmente el `venv`:
+> - `handtalk-captura` ➔ Abre la interfaz gráfica para recolectar señas.
+> - `handtalk-entrenar` ➔ Entrena el modelo clasificador.
+> - `handtalk-traducir` ➔ Inicia la traducción en tiempo real con cámara.
+>
+> ⚠️ **Nota importante para Windows:** Para utilizar los atajos después de la instalación, **no se puede hacer en la misma terminal donde se realizó la instalación**. Es necesario **abrir una nueva ventana de terminal de PowerShell (o CMD)** para que el sistema refresque las variables de entorno y reconozca la ruta del `PATH`.
+
+### 🔄 Actualización de Dependencias
+Si en el futuro se agregan nuevas librerías al archivo `inicio/requirements.txt`, no es necesario reinstalar todo el entorno desde cero ni perder tus configuraciones. Solo debes ejecutar nuevamente el instalador (`./install.sh` o `.\install.ps1`) y seleccionar:
+- **`[2] Actualizar Dependencias`**: Detecta automáticamente tu entorno virtual existente e instala únicamente los paquetes nuevos o pendientes dentro del `venv`, ejecutando además una prueba de integridad de módulos sin alterar tus atajos ni tus modelos entrenados.
+
+---
+
+## ⚙️ Guía de Configuración Manual del Entorno
+
+Si prefieres configurar el entorno manualmente:
 
 ### 1. Requisitos de Python
-El proyecto es compatible con **Python 3.10, 3.11 y 3.12**. 
-⚠️ **IMPORTANTE**: No utilices versiones experimentales como Python 3.13 o 3.14, ya que las librerías de visión artificial aún no son compatibles.
+El proyecto requiere **Python 3.10, 3.11 o 3.12**.
+⚠️ **IMPORTANTE**: No utilices versiones como Python 3.13 o 3.14, ya que MediaPipe 0.10.14 no posee soporte para estas versiones.
 
-### 2. Instalación Paso a Paso (Windows)
+### 2. Instalación Manual Paso a Paso (Windows / Linux)
 
 Abre una terminal en la carpeta raíz del proyecto y ejecuta:
 
-```powershell
-# 1. Crear el entorno virtual
-python -m venv venv
+```bash
+# 1. Crear el entorno virtual (usando Python 3.10-3.12)
+python3.11 -m venv venv   # En Linux
+py -3.11 -m venv venv     # En Windows
 
 # 2. Activar el entorno virtual
-.\\venv\\Scripts\\activate
+source venv/bin/activate       # En Linux
+.\venv\Scripts\Activate.ps1    # En Windows
 
-# 3. Actualizar pip para evitar errores de instalación
-python -m pip install --upgrade pip
+# 3. Actualizar pip
+pip install --upgrade pip setuptools wheel
 
 # 4. Instalar las dependencias fijadas
 pip install -r inicio/requirements.txt
@@ -58,8 +96,27 @@ python inicio/realtime_translator.py
 
 ---
 
+## 🌐 Visor Web (Traducción Remota)
+
+HandTalk permite transmitir la traducción a cualquier dispositivo (celular, tablet) conectado a la misma red Wi-Fi.
+
+### Cómo levantar el visor:
+1. Ejecuta el servidor web:
+   ```bash
+   uvicorn web_server:app --host 0.0.0.0 --port 8000 --reload
+   ```
+2. Genera el código QR para acceso rápido:
+   ```bash
+   python qr_generator.py
+   ```
+3. Escanea el QR con tu celular para ver la traducción en vivo.
+
+---
+
 ## 📂 Estructura de Carpetas
 *   `inicio/`: Contiene todo el núcleo funcional del proyecto.
 *   `custom_dataset/`: (Se crea automáticamente) Guarda los vectores de señas en formato JSON.
 *   `models/`: (Se crea automáticamente) Almacena el modelo entrenado (`.pkl`).
 *   `Documentacion/`: Planes de trabajo y guion técnico.
+*   `web_server.py`, `visor.html`, `qr_generator.py`: Componentes del sistema de visualización remota.
+*   `install.sh`, `install.ps1`: Scripts de instalación automatizada.

@@ -10,23 +10,32 @@ Este documento sirve como registro rápido de las tareas completadas y el progre
 - [x] **Gestión de Dependencias**: Creación de `requirements.txt` con versiones estables de MediaPipe y OpenCV.
 - [x] **Control de Versiones**: Configuración de repositorio GitHub con `.gitignore` optimizado.
 - [x] **Guía de Inicio**: Creación de `README.md` con instrucciones de instalación y uso.
+- [x] **Instaladores Automatizados**: Creación de scripts `install.sh` y `install.ps1` para configuración rápida del entorno y atajos de terminal.
 
-### 🧩 Tarea 1 - Fase MVP (Bloqueante)
+### 🧩 Fase 1 - MVP Base (Bloqueante)
 - [x] **Francisco (Tarea 1)**: Conexión de la GUI de captura con el motor de normalización de `hand_features.py`.
 - [x] **Herber (Tarea 1)**: Implementación de la nueva interfaz de captura de señas (`gui_captura.py`).
 - [x] **Validación de Flujo**: Prueba exitosa de Captura $\rightarrow$ Entrenamiento $\rightarrow$ Traducción.
+- [x] **Definición de Interfaz**: Definición del contrato de interfaz para el evento "palabra confirmada" (`EVENTOS.md`).
 
-### 📡 Tarea 2 - Definición de Interfaz
-- [x] **Francisco (Tarea 2)**: Definición del contrato de interfaz para el evento "palabra confirmada" (`EVENTOS.md`).
+### 🌐 Fase 2 - Visor Web (En Desarrollo)
+- [x] **Servidor Backend**: Implementación de servidor FastAPI con streaming de video MJPEG.
+- [x] **Comunicación en Tiempo Real**: Implementación de WebSocket para envío de traducciones.
+- [x] **Acceso Simplificado**: Implementación de detector de IP local y generador de códigos QR.
+- [x] **Frontend del Visor**: Creación de `visor.html` para visualización de video y subtítulos en dispositivos móviles.
+- [x] **Prueba de Concepto**: Verificación del flujo completo utilizando un ciclo de prueba (`demo_loop`).
 
 ---
 
 ## 🕒 Próximas Tareas (Prioridad)
 
-### Resto del Equipo
-- [ ] Implementar salidas adicionales basadas en el evento de traducción (Voz, Web, Cámara Virtual).
+### Integración y Pulido
+- [ ] **Conexión Real**: Reemplazar el `demo_loop` del visor web por la llamada real desde el motor de traducción (`on_translation_confirmed` de `EVENTOS.md`).
+- [ ] **Cámara Virtual**: Investigación e integración de `pyvirtualcam` para emitir video con subtítulos a apps de videollamada (Zoom, Meet, Teams).
+- [ ] **Seguridad Web**: Implementar el esquema de seguridad propuesto en `Documentacion/plan_integracion.MD` (Tokens, PIN, Rate Limiting, CSP).
+- [ ] **Diseño Visual**: Mejorar la interfaz del visor web según los requerimientos de diseño.
 
 ---
 
-**Última actualización**: 2026-09-06
-**Estado General**: 🟢 Fase 1 (MVP Base) Finalizada.
+**Última actualización**: 2026-09-13
+**Estado General**: 🟢 Fase 1 Finalizada | 🟡 Fase 2 (Visor Web) en etapa de integración.
