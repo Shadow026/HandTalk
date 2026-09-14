@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>HandTalk — Acceso al Visor</title>
+    <style>
+        :root {
+            --bg-color: #0f1015;
+            --card-bg: #1a1b26;
+            --card-border: #2f334d;
+            --accent: #6c5ce7;
+            --accent-hover: #5844e3;
+            --text-main: #f8f9fa;
+            --text-muted: #8c93b0;
+            --error-bg: rgba(235, 77, 75, 0.15);
+            --error-border: #eb4d4b;
+            --error-text: #ff7675;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .login-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            width: 100%;
+            max-width: 380px;
+            padding: 32px 24px;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+            text-align: center;
+        }
+
+        .logo {
+            font-size: 38px;
+            margin-bottom: 12px;
+            display: inline-block;
+        }
+
+        h1 {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text-main);
+            margin-bottom: 8px;
+        }
+
+        p.subtitle {
+            font-size: 14px;
+            color: var(--text-muted);
+            margin-bottom: 24px;
+            line-height: 1.4;
+        }
+
+        .error-banner {
+            display: none;
+            background-color: var(--error-bg);
+            border: 1px solid var(--error-border);
+            color: var(--error-text);
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .input-group {
+            margin-bottom: 24px;
+        }
+
+        .pin-input {
+            width: 100%;
+            padding: 14px 16px;
+            font-size: 26px;
+            font-weight: 700;
+            letter-spacing: 12px;
+            text-align: center;
+            background-color: #12131c;
+            border: 2px solid var(--card-border);
+            border-radius: 10px;
+            color: #ffffff;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .pin-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 4px rgba(108, 92, 231, 0.2);
+        }
+
+        .btn-submit {
+            width: 100%;
+            padding: 14px;
+            font-size: 15px;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--accent) 0%, #4834d4 100%);
+            color: #ffffff;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: transform 0.1s, opacity 0.2s;
+        }
+
+        .btn-submit:hover {
+            opacity: 0.95;
+        }
+
+        .btn-submit:active {
+            transform: scale(0.98);
+        }
+
+        .footer-note {
+            margin-top: 24px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .badge-secure {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: #2ed573;
+            background: rgba(46, 213, 115, 0.1);
+            padding: 4px 10px;
+            border-radius: 20px;
+            margin-top: 16px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="login-card">
+        <div class="logo">👋</div>
+        <h1>HandTalk — Visor Remoto</h1>
+        <p class="subtitle">Ingrese el PIN de 6 dígitos que se muestra en la pantalla de la computadora para vincular este dispositivo.</p>
+
+        <div id="errorBanner" class="error-banner">
+            PIN incorrecto o sesión caducada. Por favor intente de nuevo.
+        </div>
+
+        <form action="/login" method="POST" id="loginForm">
+            <div class="input-group">
+                <input
+                    type="text"
+                    id="pin"
+                    name="pin"
+                    class="pin-input"
+                    inputmode="numeric"
+                    pattern="[0-9]{6}"
+                    maxlength="6"
+                    placeholder="••••••"
+                    autocomplete="one-time-code"
+                    required
+                    autofocus
+                >
+            </div>
+
+            <button type="submit" class="btn-submit">Acceder al Visor</button>
+        </form>
+
+        <div class="badge-secure">
+            <span>🔒</span> Conexión Local Segura (LAN)
+        </div>
+
+        <p class="footer-note">También puede escanear directamente el Código QR para acceder sin ingresar el PIN.</p>
+    </div>
+
+    <script>
+        // Manejar errores enviados por query param
+        const urlParams = new URLSearchParams(window.location.search);
+        const error = urlParams.get('error');
+        const errorBanner = document.getElementById('errorBanner');
+
+        if (error) {
+            errorBanner.style.display = 'block';
+            if (error === 'invalid_pin') {
+                errorBanner.textContent = 'El PIN ingresado es incorrecto. Verifique el valor en la computadora.';
+            } else if (error === 'max_sessions') {
+                errorBanner.textContent = 'Límite de sesiones alcanzado (máx. 2). Cierre una sesión previa.';
+            } else if (error === 'unauthorized') {
+                errorBanner.textContent = 'Se requiere autenticación para acceder al visor.';
+            } else {
+                errorBanner.textContent = 'Acceso denegado. Intente nuevamente.';
+            }
+        }
+
+        // Auto-envío cuando se completan los 6 dígitos
+        const pinInput = document.getElementById('pin');
+        pinInput.addEventListener('input', function() {
+            // Eliminar caracteres no numéricos
+            this.value = this.value.replace(/[^0-9]/g, '');
+            if (this.value.length === 6) {
+                document.getElementById('loginForm').submit();
+            }
+        });
+    </script>
+</body>
+</html>

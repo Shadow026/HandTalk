@@ -386,6 +386,7 @@ create_cli_shortcuts() {
         "handtalk-captura:inicio/gui_captura.py:Captura y recolección de señas personalizadas:GUI:camera-web:HandTalk - Captura:Captura de Señas"
         "handtalk-entrenar:inicio/train_classifier.py:Entrenamiento del clasificador de señas:CLI:utilities-terminal:HandTalk - Entrenar:Entrenar Clasificador"
         "handtalk-traducir:inicio/realtime_translator.py:Traducción de señas en vivo con cámara:GUI:camera-web:HandTalk - Traducir:Traductor en Vivo"
+        "handtalk-visor:web_server.py:Servidor web y visor remoto de HandTalk:CLI:network-server:HandTalk - Visor:Servidor Web Visor"
     )
 
     # 1. Crear carpeta ~/.local/bin para el usuario
@@ -527,7 +528,7 @@ EOF
 }
 
 remove_cli_shortcuts() {
-    local shortcuts=("handtalk-captura" "handtalk-entrenar" "handtalk-traducir")
+    local shortcuts=("handtalk-captura" "handtalk-entrenar" "handtalk-traducir" "handtalk-visor")
 
     # 1. Eliminar ejecutables CLI de carpetas de usuario y sistema
     for name in "${shortcuts[@]}"; do
@@ -583,6 +584,108 @@ remove_cli_shortcuts() {
         if [ "$IS_ROOT" -eq 1 ] && [ -d "${SYS_DESKTOP_DIR}" ]; then
             update-desktop-database "${SYS_DESKTOP_DIR}" 2>/dev/null || true
         fi
+    fi
+}
+
+# --- Configuración del Sistema para Cámara Virtual (v4l2loopback) ---
+
+setup_virtualcam_system() {
+    print_centered "${C_CYAN}Configurando soporte para Cámara Virtual (v4l2loopback)...${C_RESET}"
+
+    local need_install=0
+    if ! modinfo v4l2loopback >/dev/null 2>&1; then
+        need_install=1
+    fi
+
+    if [ "$need_install" -eq 1 ]; then
+        print_centered "      ${C_YELLOW}⚠ Módulo v4l2loopback no detectado; instalando paquetes del sistema...${C_RESET}"
+        if [ "$DETECTED_DISTRO_FAMILY" = "debian" ]; then
+            if command -v apt-get >/dev/null 2>&1; then
+                print_centered "      ${C_CYAN}Instalando v4l2loopback-dkms y v4l2loopback-utils via apt...${C_RESET}"
+                if [ "$IS_ROOT" -eq 1 ]; then
+                    apt-get update -y >>"${LOG_FILE}" 2>&1 || true
+                    apt-get install -y v4l2loopback-dkms v4l2loopback-utils >>"${LOG_FILE}" 2>&1 || true
+                elif command -v sudo >/dev/null 2>&1; then
+                    sudo apt-get update -y >>"${LOG_FILE}" 2>&1 || true
+                    sudo apt-get install -y v4l2loopback-dkms v4l2loopback-utils >>"${LOG_FILE}" 2>&1 || true
+                fi
+            fi
+        elif [ "$DETECTED_DISTRO_FAMILY" = "arch" ]; then
+            if command -v pacman >/dev/null 2>&1; then
+                print_centered "      ${C_CYAN}Instalando v4l2loopback-dkms y v4l2loopback-utils via pacman...${C_RESET}"
+                if [ "$IS_ROOT" -eq 1 ]; then
+                    pacman -S --noconfirm v4l2loopback-dkms v4l2loopback-utils >>"${LOG_FILE}" 2>&1 || true
+                elif command -v sudo >/dev/null 2>&1; then
+                    sudo pacman -S --noconfirm v4l2loopback-dkms v4l2loopback-utils >>"${LOG_FILE}" 2>&1 || true
+                fi
+            fi
+        elif [ "$DETECTED_DISTRO_FAMILY" = "fedora" ]; then
+            if command -v dnf >/dev/null 2>&1; then
+                print_centered "      ${C_CYAN}Instalando v4l2loopback y v4l2loopback-utils via dnf...${C_RESET}"
+                if [ "$IS_ROOT" -eq 1 ]; then
+                    dnf install -y v4l2loopback v4l2loopback-utils >>"${LOG_FILE}" 2>&1 || true
+                elif command -v sudo >/dev/null 2>&1; then
+                    sudo dnf install -y v4l2loopback v4l2loopback-utils >>"${LOG_FILE}" 2>&1 || true
+                fi
+            fi
+        fi
+    fi
+
+    # Configurar opciones de kernel v4l2loopback para Chromium / Meet / Zoom
+    local modprobe_file="/etc/modprobe.d/v4l2loopback.conf"
+    local modprobe_line='options v4l2loopback devices=1 video_nr=10 card_label="HandTalk Virtual Cam" exclusive_caps=1'
+    local modules_load_file="/etc/modules-load.d/v4l2loopback.conf"
+
+    if [ "$IS_ROOT" -eq 1 ] || command -v sudo >/dev/null 2>&1; then
+        local SUDO_CMD=""
+        [ "$IS_ROOT" -eq 0 ] && SUDO_CMD="sudo"
+
+        $SUDO_CMD mkdir -p /etc/modprobe.d /etc/modules-load.d 2>/dev/null || true
+        echo "$modprobe_line" | $SUDO_CMD tee "$modprobe_file" >/dev/null 2>&1 || true
+        echo "v4l2loopback" | $SUDO_CMD tee "$modules_load_file" >/dev/null 2>&1 || true
+
+        # Intentar cargar el módulo con los parámetros para video_nr=10
+        $SUDO_CMD modprobe -r v4l2loopback 2>/dev/null || true
+        $SUDO_CMD modprobe v4l2loopback devices=1 video_nr=10 card_label="HandTalk Virtual Cam" exclusive_caps=1 2>/dev/null || true
+    fi
+
+    # Validar pertenencia al grupo 'video'
+    local user_groups
+    user_groups=$(id -Gn "${TARGET_USER}" 2>/dev/null || echo "")
+    if [[ ! " $user_groups " =~ " video " ]]; then
+        print_centered "      ${C_CYAN}Añadiendo al usuario ${TARGET_USER} al grupo video...${C_RESET}"
+        if [ "$IS_ROOT" -eq 1 ]; then
+            usermod -aG video "${TARGET_USER}" 2>/dev/null || true
+        elif command -v sudo >/dev/null 2>&1; then
+            sudo usermod -aG video "${TARGET_USER}" 2>/dev/null || true
+        fi
+    fi
+
+    if modinfo v4l2loopback >/dev/null 2>&1; then
+        print_centered "      ${C_GREEN}✓${C_WHITE} Configuración de v4l2loopback lista (/dev/video10).${C_RESET}"
+    else
+        print_centered "      ${C_YELLOW}⚠ Driver v4l2loopback registrado. Si requiere reiniciar para compilar DKMS, se aplicará al reiniciar.${C_RESET}"
+    fi
+}
+
+# --- Configuración de Reglas de Firewall en GNU/Linux ---
+
+configure_firewall_linux() {
+    print_centered "${C_CYAN}Configurando regla de firewall para Visor Web (Puerto 8000)...${C_RESET}"
+    local SUDO_CMD=""
+    [ "$IS_ROOT" -eq 0 ] && command -v sudo >/dev/null 2>&1 && SUDO_CMD="sudo"
+
+    if systemctl is-active firewalld >/dev/null 2>&1; then
+        print_centered "      ${C_CYAN}Abriendo puerto 8000/tcp en firewalld...${C_RESET}"
+        $SUDO_CMD firewall-cmd --add-port=8000/tcp --permanent >>"${LOG_FILE}" 2>&1 || true
+        $SUDO_CMD firewall-cmd --reload >>"${LOG_FILE}" 2>&1 || true
+        print_centered "      ${C_GREEN}✓${C_WHITE} Puerto 8000 habilitado en firewalld.${C_RESET}"
+    elif systemctl is-active ufw >/dev/null 2>&1 || command -v ufw >/dev/null 2>&1; then
+        print_centered "      ${C_CYAN}Abriendo puerto 8000/tcp en ufw...${C_RESET}"
+        $SUDO_CMD ufw allow 8000/tcp >>"${LOG_FILE}" 2>&1 || true
+        print_centered "      ${C_GREEN}✓${C_WHITE} Puerto 8000 habilitado en ufw.${C_RESET}"
+    else
+        print_centered "      ${C_GRAY}ℹ No se detectó firewall activo (firewalld/ufw).${C_RESET}"
     fi
 }
 
@@ -693,6 +796,14 @@ do_installation() {
     print_centered "      ${C_GREEN}✓${C_WHITE} Dependencias instaladas correctamente.${C_RESET}"
     print_centered ""
 
+    # Configuración de Cámara Virtual a nivel de sistema operativo
+    setup_virtualcam_system
+    print_centered ""
+
+    # Configuración de reglas de firewall en red local (Puerto 8000)
+    configure_firewall_linux
+    print_centered ""
+
     # 5. Creación de Atajos CLI y del Sistema
     print_centered "${C_CYAN}[5/5]${C_WHITE} Configurando atajos del sistema para ${C_BOLD}${DETECTED_DISTRO_PRETTY}${C_RESET}..."
     create_cli_shortcuts
@@ -712,7 +823,7 @@ do_installation() {
     print_centered "${C_WHITE}Ejecutando prueba de verificación rápida de librerías...${C_RESET}"
     local smoke_test
     smoke_test=$("${VENV_DIR}/bin/python" -c "
-import cv2, mediapipe, sklearn, PIL, numpy
+import cv2, mediapipe, sklearn, PIL, numpy, pyvirtualcam, fastapi, slowapi
 print('OK')
 " 2>/dev/null || echo "FAIL")
 
@@ -735,6 +846,7 @@ print('OK')
     print_box_row "${C_CYAN}  1. handtalk-captura   ${C_GRAY}→ Captura y recolección de señas${C_RESET}" "left_tight"
     print_box_row "${C_CYAN}  2. handtalk-entrenar  ${C_GRAY}→ Entrenamiento del clasificador${C_RESET}" "left_tight"
     print_box_row "${C_CYAN}  3. handtalk-traducir  ${C_GRAY}→ Traducción en tiempo real (cámara)${C_RESET}" "left_tight"
+    print_box_row "${C_CYAN}  4. handtalk-visor     ${C_GRAY}→ Servidor web y visor remoto de HandTalk${C_RESET}" "left_tight"
     print_box_row "" "center"
     print_box_row "${C_WHITE}También disponibles en el menú de aplicaciones de su sistema.${C_RESET}" "center"
     print_box_row "" "center"
@@ -775,7 +887,7 @@ do_update_dependencies() {
     fi
 
     # 2. Validación de Pre-requisito: Atajos del Sistema
-    local shortcuts=("handtalk-captura" "handtalk-entrenar" "handtalk-traducir")
+    local shortcuts=("handtalk-captura" "handtalk-entrenar" "handtalk-traducir" "handtalk-visor")
     local missing_shortcuts=0
     for name in "${shortcuts[@]}"; do
         if [ ! -f "${USER_BIN_DIR}/${name}" ] && [ ! -f "${SYS_BIN_DIR}/${name}" ] && ! command -v "${name}" >/dev/null 2>&1; then
@@ -835,7 +947,7 @@ do_update_dependencies() {
     print_centered "${C_CYAN}[3/3]${C_WHITE} Verificando integridad del entorno virtual...${C_RESET}"
     local smoke_test
     smoke_test=$("${VENV_DIR}/bin/python" -c "
-import cv2, mediapipe, sklearn, PIL, numpy
+import cv2, mediapipe, sklearn, PIL, numpy, pyvirtualcam, fastapi, slowapi
 print('OK')
 " 2>/dev/null || echo "FAIL")
 

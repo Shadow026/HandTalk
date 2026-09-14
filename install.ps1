@@ -170,12 +170,19 @@ function Show-HeaderBanner {
     try { Clear-Host } catch { Write-Host "`n`n" }
     Write-Centered ""
     Write-BoxTop -Width 71
-    Write-BoxRow "██╗  ██╗ █████╗ ███╗   ██╗██████╗ ████████╗ █████╗ ██╗     ██╗  ██╗" "center" "White" -Width 71
-    Write-BoxRow "██║  ██║██╔══██╗████╗  ██║██╔══██╗╚══██╔══╝██╔══██╗██║     ██║ ██╔╝" "center" "White" -Width 71
-    Write-BoxRow "███████║███████║██╔██╗ ██║██║  ██║   ██║   ███████║██║     █████╔╝ " "center" "White" -Width 71
-    Write-BoxRow "██╔══██║██╔══██║██║╚██╗██║██║  ██║   ██║   ██╔══██║██║     ██╔═██╗ " "center" "White" -Width 71
-    Write-BoxRow "██║  ██║██║  ██║██║ ╚████║██████╔╝   ██║   ██║  ██║███████╗██║  ██╗" "center" "White" -Width 71
-    Write-BoxRow "╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝    ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝" "center" "White" -Width 71
+    $bV  = [char]0x2551  # ║
+    $bTL = [char]0x2554  # ╔
+    $bannerRows = @(
+        "██╗  ██╗ █████╗ ███╗   ██╗██████╗ ████████╗ █████╗ ██╗     ██╗  ██╗"
+        "██{0}  ██{0}██{1}══██╗████╗  ██{0}██{1}══██╗╚══██{1}══╝██{1}══██╗██{0}     ██{0} ██{1}╝"
+        "███████{0}███████{0}██{1}██╗ ██{0}██{0}  ██{0}   ██{0}   ███████{0}██{0}     █████{1}╝ "
+        "██{1}══██{0}██{1}══██{0}██{0}╚██╗██{0}██{0}  ██{0}   ██{0}   ██{1}══██{0}██{0}     ██{1}═██╗ "
+        "██{0}  ██{0}██{0}  ██{0}██{0} ╚████{0}██████{1}╝   ██{0}   ██{0}  ██{0}███████╗██{0}  ██╗"
+        "╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝    ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝"
+    )
+    foreach ($row in $bannerRows) {
+        Write-BoxRow ($row -f $bV, $bTL) "center" "White" -Width 71
+    }
     Write-BoxRow "" "center" "White" -Width 71
     Write-BoxRow "Sistema de Reconocimiento y Traducción de Señas" "center" "Yellow" -Width 71
     Write-BoxRow "MediaPipe 0.10.14  $($Script:ChDot)  OpenCV  $($Script:ChDot)  Scikit-Learn" "center" "DarkGray" -Width 71
@@ -314,9 +321,13 @@ function Test-ModuleImports {
     if (-not (Test-Path $VenvPython)) { return @() }
 
     # Script Python inline que evalúa cada librería independientemente
-    $code = @"
+    $code = @'
 import json
-tests = [('numpy','NumPy'), ('cv2','OpenCV'), ('mediapipe','MediaPipe'), ('sklearn','Scikit-Learn'), ('PIL','Pillow')]
+tests = [
+    ('numpy','NumPy'), ('cv2','OpenCV'), ('mediapipe','MediaPipe'),
+    ('sklearn','Scikit-Learn'), ('PIL','Pillow'), ('pyvirtualcam','PyVirtualCam'),
+    ('fastapi','FastAPI'), ('slowapi','SlowAPI')
+]
 res = []
 for mod, name in tests:
     item = {'module': mod, 'name': name, 'status': 'FAIL', 'version': '', 'error': ''}
@@ -329,7 +340,7 @@ for mod, name in tests:
         item['error'] = str(e)
     res.append(item)
 print('__JSON_START__' + json.dumps(res) + '__JSON_END__')
-"@
+'@
     try {
         $output = & $VenvPython -c $code 2>&1
         $rawText = $output -join "`n"
@@ -451,7 +462,8 @@ function Create-CliShortcuts {
     $shortcuts = @(
         @{ Name = "handtalk-captura"; Target = "inicio\gui_captura.py"; Desc = "Captura de señas" },
         @{ Name = "handtalk-entrenar"; Target = "inicio\train_classifier.py"; Desc = "Entrenamiento de modelo" },
-        @{ Name = "handtalk-traducir"; Target = "inicio\realtime_translator.py"; Desc = "Traducción en vivo" }
+        @{ Name = "handtalk-traducir"; Target = "inicio\realtime_translator.py"; Desc = "Traducción en vivo" },
+        @{ Name = "handtalk-visor"; Target = "web_server.py"; Desc = "Servidor web y visor remoto de HandTalk" }
     )
 
     foreach ($item in $shortcuts) {
@@ -490,7 +502,7 @@ endlocal
 }
 
 function Remove-CliShortcuts {
-    $shortcuts = @("handtalk-captura.bat", "handtalk-entrenar.bat", "handtalk-traducir.bat")
+    $shortcuts = @("handtalk-captura.bat", "handtalk-entrenar.bat", "handtalk-traducir.bat", "handtalk-visor.bat")
     foreach ($sc in $shortcuts) {
         $scPath = Join-Path $Script:BinDir $sc
         if (Test-Path $scPath) {
@@ -519,6 +531,71 @@ function Remove-CliShortcuts {
         }
         $newPath = $parts -join ';'
         [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
+    }
+}
+
+# --- Auditoría de Cámara Virtual y Regla de Firewall (Windows) ---
+
+function Test-VirtualCamDriver {
+    $driverFound = $false
+    $driverName = ""
+
+    # 1. Comprobar CLSID comunes de OBS Virtual Camera en Registro DirectShow
+    $clsidPaths = @(
+        "HKLM:\SOFTWARE\Classes\CLSID\{27B05C2D-93DC-474A-A6DA-7B4C1A8BE8A7}",
+        "HKLM:\SOFTWARE\WOW6432Node\Classes\CLSID\{27B05C2D-93DC-474A-A6DA-7B4C1A8BE8A7}",
+        "HKCU:\SOFTWARE\Classes\CLSID\{27B05C2D-93DC-474A-A6DA-7B4C1A8BE8A7}"
+    )
+    foreach ($p in $clsidPaths) {
+        if (Test-Path $p) {
+            $driverFound = $true
+            $driverName = "OBS Virtual Camera (Registro DirectShow)"
+            break
+        }
+    }
+
+    # 2. Comprobar archivos DLL en ubicaciones estándar de OBS Studio
+    if (-not $driverFound) {
+        $dllCandidates = @(
+            "$env:ProgramFiles\obs-studio\data\obs-plugins\win-dshow\obs-virtualcam-module64.dll",
+            "${env:ProgramFiles(x86)}\obs-studio\data\obs-plugins\win-dshow\obs-virtualcam-module32.dll",
+            "$env:ProgramFiles\obs-studio\bin\64bit\obs-virtualcam-module64.dll"
+        )
+        foreach ($cand in $dllCandidates) {
+            if (Test-Path $cand) {
+                $driverFound = $true
+                $driverName = "OBS Virtual Camera ($cand)"
+                break
+            }
+        }
+    }
+
+    # 3. Comprobar UnityCaptureFilter
+    if (-not $driverFound) {
+        $unityClsid = "HKLM:\SOFTWARE\Classes\CLSID\{8E1DA6E1-4899-4A73-B561-BD5A760EB3B8}"
+        if (Test-Path $unityClsid) {
+            $driverFound = $true
+            $driverName = "Unity Capture Filter"
+        }
+    }
+
+    return @{
+        Found = $driverFound
+        Name = $driverName
+    }
+}
+
+function Add-HandTalkFirewallRule {
+    try {
+        $existing = Get-NetFirewallRule -DisplayName "HandTalk Web Viewer" -ErrorAction SilentlyContinue
+        if (-not $existing) {
+            New-NetFirewallRule -DisplayName "HandTalk Web Viewer" -Direction Inbound -LocalPort 8000 -Protocol TCP -Profile Private -Action Allow -ErrorAction SilentlyContinue | Out-Null
+            Write-Centered "      $($Script:ChOk) Regla de Firewall creada para puerto 8000 (Red Privada)." "Green"
+        } else {
+            Write-Centered "      $($Script:ChOk) Regla de Firewall para puerto 8000 ya configurada." "Green"
+        }
+    } catch {
+        Write-Centered "      $($Script:ChWrn) No se pudo configurar la regla de firewall automáticamente (requiere permisos de Administrador)." "Yellow"
     }
 }
 
@@ -634,6 +711,19 @@ function Start-Installation {
     Write-Centered "      $($Script:ChOk) Atajos creados (.bat) y agregados al PATH del usuario." "Green"
     Write-Centered ""
 
+    # Auditoría de Driver de Cámara Virtual y Regla de Firewall para Visor Web
+    Write-Centered "Verificando soporte de Cámara Virtual y Red..." "Cyan"
+    $vcam = Test-VirtualCamDriver
+    if ($vcam.Found) {
+        Write-Centered "      $($Script:ChOk) Driver de Cámara Virtual detectado: $($vcam.Name)" "Green"
+    } else {
+        Write-Centered "      $($Script:ChWrn) Driver DirectShow de OBS Virtual Cam no detectado." "Yellow"
+        Write-Centered "      Aviso: La cámara virtual en Meet/Zoom requiere instalar OBS Studio." "DarkGray"
+    }
+
+    Add-HandTalkFirewallRule
+    Write-Centered ""
+
     # 6. Verificación Post-Instalación (Smoke Test Modular)
     Write-Centered "Ejecutando verificación de carga de librerías..." "White"
     $modResults = Test-ModuleImports -VenvPython $venvPython
@@ -666,6 +756,7 @@ function Start-Installation {
         Write-BoxRow "  1. handtalk-captura   $($Script:ChArr) Captura y recolección de señas" "left_tight" "Cyan"
         Write-BoxRow "  2. handtalk-entrenar  $($Script:ChArr) Entrenamiento del clasificador" "left_tight" "Cyan"
         Write-BoxRow "  3. handtalk-traducir  $($Script:ChArr) Traducción en tiempo real (cámara)" "left_tight" "Cyan"
+        Write-BoxRow "  4. handtalk-visor     $($Script:ChArr) Servidor web y visor remoto de HandTalk" "left_tight" "Cyan"
         Write-BoxRow "" "center" "White"
         Write-BoxRow "Nota: Debe abrir una nueva terminal de PowerShell para" "center" "DarkGray"
         Write-BoxRow "usar los atajos (no funcionan en esta misma ventana)." "center" "DarkGray"
@@ -708,7 +799,7 @@ function Update-Dependencies {
     }
 
     # 2. Validación de Pre-requisito: Atajos CLI
-    $shortcuts = @("handtalk-captura.bat", "handtalk-entrenar.bat", "handtalk-traducir.bat")
+    $shortcuts = @("handtalk-captura.bat", "handtalk-entrenar.bat", "handtalk-traducir.bat", "handtalk-visor.bat")
     $missingShortcuts = $shortcuts | Where-Object { -not (Test-Path (Join-Path $Script:BinDir $_)) }
     if ($missingShortcuts) {
         Write-BoxTop

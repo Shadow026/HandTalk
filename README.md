@@ -111,7 +111,11 @@ HandTalk permite transmitir la traducción a cualquier dispositivo (celular, tab
    ```
 3. Escanea el QR con tu celular para ver la traducción en vivo.
 
+> **Si utilizaste la ultima version del instalador:**
+> simplemente escribe en tu terminal: handtalk-visor
 ---
+
+
 
 ## 📂 Estructura de Carpetas
 *   `inicio/`: Contiene todo el núcleo funcional del proyecto.
