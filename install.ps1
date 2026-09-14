@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # HandTalk - Instalador y Gestor de Entorno Automatizado (Microsoft Windows)
 # ==============================================================================
 # Repositorio: HandTalk
@@ -170,12 +170,19 @@ function Show-HeaderBanner {
     try { Clear-Host } catch { Write-Host "`n`n" }
     Write-Centered ""
     Write-BoxTop -Width 71
-    Write-BoxRow "██╗  ██╗ █████╗ ███╗   ██╗██████╗ ████████╗ █████╗ ██╗     ██╗  ██╗" "center" "White" -Width 71
-    Write-BoxRow "██║  ██║██╔══██╗████╗  ██║██╔══██╗╚══██╔══╝██╔══██╗██║     ██║ ██╔╝" "center" "White" -Width 71
-    Write-BoxRow "███████║███████║██╔██╗ ██║██║  ██║   ██║   ███████║██║     █████╔╝ " "center" "White" -Width 71
-    Write-BoxRow "██╔══██║██╔══██║██║╚██╗██║██║  ██║   ██║   ██╔══██║██║     ██╔═██╗ " "center" "White" -Width 71
-    Write-BoxRow "██║  ██║██║  ██║██║ ╚████║██████╔╝   ██║   ██║  ██║███████╗██║  ██╗" "center" "White" -Width 71
-    Write-BoxRow "╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝    ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝" "center" "White" -Width 71
+    $bV  = [char]0x2551  # ║
+    $bTL = [char]0x2554  # ╔
+    $bannerRows = @(
+        "██╗  ██╗ █████╗ ███╗   ██╗██████╗ ████████╗ █████╗ ██╗     ██╗  ██╗"
+        "██{0}  ██{0}██{1}══██╗████╗  ██{0}██{1}══██╗╚══██{1}══╝██{1}══██╗██{0}     ██{0} ██{1}╝"
+        "███████{0}███████{0}██{1}██╗ ██{0}██{0}  ██{0}   ██{0}   ███████{0}██{0}     █████{1}╝ "
+        "██{1}══██{0}██{1}══██{0}██{0}╚██╗██{0}██{0}  ██{0}   ██{0}   ██{1}══██{0}██{0}     ██{1}═██╗ "
+        "██{0}  ██{0}██{0}  ██{0}██{0} ╚████{0}██████{1}╝   ██{0}   ██{0}  ██{0}███████╗██{0}  ██╗"
+        "╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝    ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝"
+    )
+    foreach ($row in $bannerRows) {
+        Write-BoxRow ($row -f $bV, $bTL) "center" "White" -Width 71
+    }
     Write-BoxRow "" "center" "White" -Width 71
     Write-BoxRow "Sistema de Reconocimiento y Traducción de Señas" "center" "Yellow" -Width 71
     Write-BoxRow "MediaPipe 0.10.14  $($Script:ChDot)  OpenCV  $($Script:ChDot)  Scikit-Learn" "center" "DarkGray" -Width 71
@@ -314,7 +321,7 @@ function Test-ModuleImports {
     if (-not (Test-Path $VenvPython)) { return @() }
 
     # Script Python inline que evalúa cada librería independientemente
-    $code = @"
+    $code = @'
 import json
 tests = [
     ('numpy','NumPy'), ('cv2','OpenCV'), ('mediapipe','MediaPipe'),
@@ -333,7 +340,7 @@ for mod, name in tests:
         item['error'] = str(e)
     res.append(item)
 print('__JSON_START__' + json.dumps(res) + '__JSON_END__')
-"@
+'@
     try {
         $output = & $VenvPython -c $code 2>&1
         $rawText = $output -join "`n"
