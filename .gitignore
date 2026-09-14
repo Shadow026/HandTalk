@@ -1,5 +1,7 @@
 # Configuración de AI y herramientas
 .claude/
+Otras ramas/
+MEMORY.md
 
 # Documentación privada
 documentacion/
@@ -29,6 +31,3 @@ Thumbs.db
 
 # Configuración local
 camera_config.json
-
-# Imagen qr generado localmente
-qr_visor.png

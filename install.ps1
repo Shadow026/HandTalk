@@ -1,0 +1,965 @@
+# ==============================================================================
+# HandTalk - Instalador y Gestor de Entorno Automatizado (Microsoft Windows)
+# ==============================================================================
+# Repositorio: HandTalk
+# Descripción: Menú interactivo TUI centrado para la instalación, gestión de
+#              entorno virtual (Python 3.10-3.12), dependencias de visión
+#              artificial y generación de atajos CLI para HandTalk en Windows.
+# Compatibilidad: Windows PowerShell 5.1 y PowerShell Core (7+).
+#
+# Nota de ejecución:
+# Si PowerShell restringe la ejecución de scripts por ExecutionPolicy, ejecute:
+#   powershell -ExecutionPolicy Bypass -File .\install.ps1
+# ==============================================================================
+
+# Configuración de codificación de consola para visualización correcta en español
+try {
+    chcp.com 65001 | Out-Null
+} catch { }
+
+try {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    if ([Console]::InputEncoding) {
+        [Console]::InputEncoding = [System.Text.Encoding]::UTF8
+    }
+    $OutputEncoding = [System.Text.Encoding]::UTF8
+} catch { }
+
+# Definición segura de caracteres Unicode para marcos y símbolos
+$Script:ChH   = [char]0x2500  # Línea horizontal de caja
+$Script:ChV   = [char]0x2502  # Línea vertical de caja
+$Script:ChTL  = [char]0x250C  # Esquina superior izquierda
+$Script:ChTR  = [char]0x2510  # Esquina superior derecha
+$Script:ChBL  = [char]0x2514  # Esquina inferior izquierda
+$Script:ChBR  = [char]0x2518  # Esquina inferior derecha
+$Script:ChML  = [char]0x251C  # Divisor medio izquierdo
+$Script:ChMR  = [char]0x2524  # Divisor medio derecho
+$Script:ChDot = [char]0x2022  # Viñeta / punto
+$Script:ChArr = [char]0x2192  # Flecha hacia la derecha
+$Script:ChOk  = [char]0x2713  # Marca de verificación (Check)
+$Script:ChErr = [char]0x2717  # Marca de error (Cruz)
+$Script:ChWrn = [char]0x26A0  # Advertencia
+$Script:ChInf = [char]0x2139  # Información
+
+# Variables de rutas del proyecto
+$Script:ProjectRoot = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+$Script:VenvDir = Join-Path $Script:ProjectRoot "venv"
+$Script:RequirementsFile = Join-Path $Script:ProjectRoot "inicio\requirements.txt"
+$Script:LogFile = Join-Path $env:TEMP "handtalk_install.log"
+$Script:BinDir = Join-Path $env:USERPROFILE ".handtalk\bin"
+
+# --- Funciones de Centrado y Diseño TUI ---
+
+function Get-ConsoleWidth {
+    $width = 80
+    try {
+        if ($Host -and $Host.UI -and $Host.UI.RawUI) {
+            $width = $Host.UI.RawUI.WindowSize.Width
+        }
+    } catch {
+        $width = 80
+    }
+    if ($width -lt 20) { $width = 80 }
+    return $width
+}
+
+function Strip-Ansi {
+    param([string]$Text)
+    if ([string]::IsNullOrEmpty($Text)) { return "" }
+    $clean = $Text -replace '\x1B\[[0-9;]*[a-zA-Z]', ''
+    $clean = $clean -replace '`e\[[0-9;]*[a-zA-Z]', ''
+    return $clean
+}
+
+function Write-Centered {
+    param(
+        [string]$Text = "",
+        [string]$ForegroundColor = "",
+        [switch]$NoNewline
+    )
+    if ([string]::IsNullOrEmpty($Text)) {
+        Write-Host ""
+        return
+    }
+    $width = Get-ConsoleWidth
+    $clean = Strip-Ansi $Text
+    $pad = [Math]::Max(0, [int][Math]::Floor(($width - $clean.Length) / 2))
+    $spaces = " " * $pad
+    if ($ForegroundColor -ne "") {
+        if ($NoNewline) {
+            Write-Host "$spaces$Text" -ForegroundColor $ForegroundColor -NoNewline
+        } else {
+            Write-Host "$spaces$Text" -ForegroundColor $ForegroundColor
+        }
+    } else {
+        if ($NoNewline) {
+            Write-Host "$spaces$Text" -NoNewline
+        } else {
+            Write-Host "$spaces$Text"
+        }
+    }
+}
+
+function Write-BoxTop {
+    param([int]$Width = 64)
+    $border = "$($Script:ChH)" * $Width
+    $line = "$($Script:ChTL)$border$($Script:ChTR)"
+    Write-Centered -Text $line -ForegroundColor Cyan
+}
+
+function Write-BoxSep {
+    param([int]$Width = 64)
+    $border = "$($Script:ChH)" * $Width
+    $line = "$($Script:ChML)$border$($Script:ChMR)"
+    Write-Centered -Text $line -ForegroundColor Cyan
+}
+
+function Write-BoxBottom {
+    param([int]$Width = 64)
+    $border = "$($Script:ChH)" * $Width
+    $line = "$($Script:ChBL)$border$($Script:ChBR)"
+    Write-Centered -Text $line -ForegroundColor Cyan
+}
+
+function Write-BoxRow {
+    param(
+        [string]$Text = "",
+        [string]$Align = "center",
+        [string]$ForegroundColor = "White",
+        [int]$Width = 64
+    )
+    $innerWidth = $Width
+    $clean = Strip-Ansi $Text
+    $len = $clean.Length
+    $padLeft = 0
+    $padRight = 0
+
+    if ($Align -eq "left") {
+        $padLeft = 3
+        $padRight = [Math]::Max(0, $innerWidth - $len - $padLeft)
+    } elseif ($Align -eq "left_tight") {
+        $padLeft = 1
+        $padRight = [Math]::Max(0, $innerWidth - $len - $padLeft)
+    } else {
+        $padLeft = [Math]::Max(0, [int][Math]::Floor(($innerWidth - $len) / 2))
+        $padRight = [Math]::Max(0, $innerWidth - $len - $padLeft)
+    }
+
+    $leftSpaces = " " * $padLeft
+    $rightSpaces = " " * $padRight
+    $content = "$leftSpaces$Text$rightSpaces"
+
+    $consoleWidth = Get-ConsoleWidth
+    $boxLen = $innerWidth + 2
+    $boxPad = [Math]::Max(0, [int][Math]::Floor(($consoleWidth - $boxLen) / 2))
+    $outerSpaces = " " * $boxPad
+
+    Write-Host "$outerSpaces" -NoNewline
+    Write-Host "$($Script:ChV)" -ForegroundColor Cyan -NoNewline
+    if ($ForegroundColor -ne "") {
+        Write-Host "$content" -ForegroundColor $ForegroundColor -NoNewline
+    } else {
+        Write-Host "$content" -NoNewline
+    }
+    Write-Host "$($Script:ChV)" -ForegroundColor Cyan
+}
+
+# --- Banners Visuales ---
+
+function Show-HeaderBanner {
+    try { Clear-Host } catch { Write-Host "`n`n" }
+    Write-Centered ""
+    Write-BoxTop -Width 71
+    Write-BoxRow "██╗  ██╗ █████╗ ███╗   ██╗██████╗ ████████╗ █████╗ ██╗     ██╗  ██╗" "center" "White" -Width 71
+    Write-BoxRow "██║  ██║██╔══██╗████╗  ██║██╔══██╗╚══██╔══╝██╔══██╗██║     ██║ ██╔╝" "center" "White" -Width 71
+    Write-BoxRow "███████║███████║██╔██╗ ██║██║  ██║   ██║   ███████║██║     █████╔╝ " "center" "White" -Width 71
+    Write-BoxRow "██╔══██║██╔══██║██║╚██╗██║██║  ██║   ██║   ██╔══██║██║     ██╔═██╗ " "center" "White" -Width 71
+    Write-BoxRow "██║  ██║██║  ██║██║ ╚████║██████╔╝   ██║   ██║  ██║███████╗██║  ██╗" "center" "White" -Width 71
+    Write-BoxRow "╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝    ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝" "center" "White" -Width 71
+    Write-BoxRow "" "center" "White" -Width 71
+    Write-BoxRow "Sistema de Reconocimiento y Traducción de Señas" "center" "Yellow" -Width 71
+    Write-BoxRow "MediaPipe 0.10.14  $($Script:ChDot)  OpenCV  $($Script:ChDot)  Scikit-Learn" "center" "DarkGray" -Width 71
+    Write-BoxBottom -Width 71
+    Write-Centered ""
+}
+
+function Show-MainMenu {
+    Write-BoxTop
+    Write-BoxRow "MENU PRINCIPAL DE GESTION (WINDOWS)" "center" "White"
+    Write-BoxSep
+    Write-BoxRow "" "center" "White"
+    Write-BoxRow "[1]  Instalación Completa  (Entorno + Dependencias + Atajos)" "left" "Green"
+    Write-BoxRow "[2]  Actualizar Dependencias  (Librerías nuevas en venv)" "left" "Cyan"
+    Write-BoxRow "[3]  Desinstalación Total  (Eliminar venv y atajos CLI)" "left" "Yellow"
+    Write-BoxRow "[4]  Salir" "left" "Red"
+    Write-BoxRow "" "center" "White"
+    Write-BoxBottom
+    Write-Centered ""
+}
+
+function Prompt-Centered {
+    param(
+        [string]$PromptText,
+        [string]$ForegroundColor = "Cyan"
+    )
+    $width = Get-ConsoleWidth
+    $clean = Strip-Ansi $PromptText
+    $pad = [Math]::Max(0, [int][Math]::Floor(($width - $clean.Length) / 2))
+    $spaces = " " * $pad
+    Write-Host "$spaces$PromptText" -ForegroundColor $ForegroundColor -NoNewline
+}
+
+function Wait-Enter {
+    Write-Centered ""
+    Prompt-Centered "Presione [Enter] para continuar..." "DarkGray"
+    [void][System.Console]::ReadLine()
+}
+
+# --- Auditoría de Seguridad y Directivas de Control de Aplicaciones (SAC / WDAC) ---
+
+function Test-SmartAppControl {
+    $info = @{
+        State = 0
+        StateName = "Desactivado (Off)"
+        IsEnforced = $false
+        RecentBlocks = 0
+    }
+    try {
+        $regVal = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy' -Name VerifiedAndReputablePolicyState -ErrorAction SilentlyContinue).VerifiedAndReputablePolicyState
+        if ($null -ne $regVal) {
+            $info.State = [int]$regVal
+            switch ($info.State) {
+                1 {
+                    $info.StateName = "Activado (Bloqueo Estricto)"
+                    $info.IsEnforced = $true
+                }
+                2 {
+                    $info.StateName = "Evaluación (Monitoring)"
+                    $info.IsEnforced = $false
+                }
+                default {
+                    $info.StateName = "Desactivado (Off)"
+                    $info.IsEnforced = $false
+                }
+            }
+        }
+    } catch { }
+
+    try {
+        $events = Get-WinEvent -LogName 'Microsoft-Windows-CodeIntegrity/Operational' -MaxEvents 30 -ErrorAction SilentlyContinue |
+                  Where-Object { ($_.Id -eq 3077 -or $_.Id -eq 3033) -and ($_.Message -like "*python*" -or $_.Message -like "*venv*" -or $_.Message -like "*HandTalk*" -or $_.Message -like "*numpy*" -or $_.Message -like "*mediapipe*") }
+        if ($events) {
+            $info.RecentBlocks = ($events | Measure-Object).Count
+        }
+    } catch { }
+
+    return $info
+}
+
+function Show-SmartAppControlAlert {
+    $sacWidth = 72
+    Write-Centered ""
+    Write-BoxTop -Width $sacWidth
+    Write-BoxRow "$($Script:ChWrn) BLOQUEO POR SMART APP CONTROL (WINDOWS 11)" "center" "Yellow" -Width $sacWidth
+    Write-BoxSep -Width $sacWidth
+    Write-BoxRow "Se detectó 'Smart App Control' en modo ACTIVO en este equipo." "center" "White" -Width $sacWidth
+    Write-BoxRow "Esta directiva de Windows 11 puede bloquear extensiones .pyd de C/C++" "center" "White" -Width $sacWidth
+    Write-BoxRow "produciendo el error: 'Una directiva de Control de aplicaciones...'" "center" "Yellow" -Width $sacWidth
+    Write-BoxRow "" "center" "White" -Width $sacWidth
+    Write-BoxRow "Si experimenta este bloqueo al iniciar HandTalk, siga estos pasos:" "left" "Cyan" -Width $sacWidth
+    Write-BoxRow "  1. Ir a Seguridad de Windows $($Script:ChArr) Control de aplicaciones y explorador" "left_tight" "White" -Width $sacWidth
+    Write-BoxRow "  2. Entrar en 'Configuración de Control inteligente de aplicaciones'" "left_tight" "White" -Width $sacWidth
+    Write-BoxRow "  3. Cambiar el ajuste a 'Desactivado'" "left_tight" "White" -Width $sacWidth
+    Write-BoxRow "  4. Reiniciar la PC para que el kernel aplique el cambio." "left_tight" "Yellow" -Width $sacWidth
+    Write-BoxBottom -Width $sacWidth
+    Write-Centered ""
+}
+
+# --- Aseguramiento de DLLs de C++ Runtime para MediaPipe ---
+
+function Sync-MediaPipeRuntime {
+    $mpDir = Join-Path $Script:VenvDir "Lib\site-packages\mediapipe\python"
+    if (-not (Test-Path $mpDir)) { return }
+
+    # 1. Copiar desde venv\Scripts (ubicadas por el paquete msvc-runtime)
+    $scriptsDir = Join-Path $Script:VenvDir "Scripts"
+    if (Test-Path $scriptsDir) {
+        $runtimeDlls = Get-ChildItem -Path $scriptsDir -Filter "*140*.dll" -ErrorAction SilentlyContinue
+        foreach ($dll in $runtimeDlls) {
+            Copy-Item -Path $dll.FullName -Destination $mpDir -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # 2. Copiar desde venv raíz si msvc-runtime dejó archivos allí
+    $rootDlls = Get-ChildItem -Path $Script:VenvDir -Filter "*140*.dll" -ErrorAction SilentlyContinue
+    foreach ($dll in $rootDlls) {
+        Copy-Item -Path $dll.FullName -Destination $mpDir -Force -ErrorAction SilentlyContinue
+    }
+
+    # 3. Copiar desde sklearn\.libs si están disponibles
+    $skLibs = Join-Path $Script:VenvDir "Lib\site-packages\sklearn\.libs"
+    if (Test-Path $skLibs) {
+        $skDlls = Get-ChildItem -Path $skLibs -Filter "*140*.dll" -ErrorAction SilentlyContinue
+        foreach ($dll in $skDlls) {
+            Copy-Item -Path $dll.FullName -Destination $mpDir -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+# --- Verificación Modular de Importación de Librerías ---
+
+function Test-ModuleImports {
+    param([string]$VenvPython)
+
+    if (-not (Test-Path $VenvPython)) { return @() }
+
+    # Script Python inline que evalúa cada librería independientemente
+    $code = @"
+import json
+tests = [
+    ('numpy','NumPy'), ('cv2','OpenCV'), ('mediapipe','MediaPipe'),
+    ('sklearn','Scikit-Learn'), ('PIL','Pillow'), ('pyvirtualcam','PyVirtualCam'),
+    ('fastapi','FastAPI'), ('slowapi','SlowAPI')
+]
+res = []
+for mod, name in tests:
+    item = {'module': mod, 'name': name, 'status': 'FAIL', 'version': '', 'error': ''}
+    try:
+        m = __import__(mod)
+        item['status'] = 'OK'
+        item['version'] = str(getattr(m, '__version__', 'ok'))
+    except Exception as e:
+        item['status'] = 'FAIL'
+        item['error'] = str(e)
+    res.append(item)
+print('__JSON_START__' + json.dumps(res) + '__JSON_END__')
+"@
+    try {
+        $output = & $VenvPython -c $code 2>&1
+        $rawText = $output -join "`n"
+        $match = [regex]::Match($rawText, '__JSON_START__(.*?)__JSON_END__')
+        if ($match.Success) {
+            return ($match.Groups[1].Value | ConvertFrom-Json)
+        }
+    } catch { }
+
+    return @()
+}
+
+# --- Detección y Validación de Python en Windows ---
+
+function Find-CompatiblePython {
+    # 1. Probar mediante el Python Launcher para Windows (py.exe)
+    $pyLauncher = Get-Command "py" -ErrorAction SilentlyContinue
+    if ($pyLauncher) {
+        $flags = @("-3.12", "-3.11", "-3.10")
+        foreach ($flag in $flags) {
+            try {
+                $code = "import sys; print(f'{sys.version_info.major} {sys.version_info.minor} {sys.executable}')"
+                $res = & py $flag -c $code 2>$null
+                if ($LASTEXITCODE -eq 0 -and $res) {
+                    $parts = ($res -split '\s+').Trim()
+                    if ($parts.Length -ge 3) {
+                        $maj = [int]$parts[0]
+                        $min = [int]$parts[1]
+                        $exe = $parts[2..($parts.Length-1)] -join ' '
+                        if ($maj -eq 3 -and ($min -ge 10 -and $min -le 12) -and (Test-Path $exe)) {
+                            return @{
+                                Executable = $exe
+                                Version = "3.$min"
+                                Source = "Python Launcher ($flag)"
+                            }
+                        }
+                    }
+                }
+            } catch { }
+        }
+    }
+
+    # 2. Probar mediante binarios directos en PATH
+    $cmdCandidates = @("python3.12", "python3.11", "python3.10", "python", "python3")
+    foreach ($cmd in $cmdCandidates) {
+        try {
+            $cmdObj = Get-Command $cmd -ErrorAction SilentlyContinue
+            if ($cmdObj) {
+                $cmdExe = if ($cmdObj.Path) { $cmdObj.Path } elseif ($cmdObj.Source) { $cmdObj.Source } else { $cmd }
+                $code = "import sys; print(f'{sys.version_info.major} {sys.version_info.minor} {sys.executable}')"
+                $res = & $cmdExe -c $code 2>$null
+                if ($LASTEXITCODE -eq 0 -and $res) {
+                    $parts = ($res -split '\s+').Trim()
+                    if ($parts.Length -ge 3) {
+                        $maj = [int]$parts[0]
+                        $min = [int]$parts[1]
+                        $exe = $parts[2..($parts.Length-1)] -join ' '
+                        if ($maj -eq 3 -and ($min -ge 10 -and $min -le 12) -and (Test-Path $exe)) {
+                            return @{
+                                Executable = $exe
+                                Version = "3.$min"
+                                Source = "$cmd ($exe)"
+                            }
+                        }
+                    }
+                }
+            }
+        } catch { }
+    }
+
+    # 3. Probar rutas comunes de instalación en Windows (si no están añadidas al PATH)
+    $commonDirs = @(
+        "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python310\python.exe",
+        "C:\Python312\python.exe",
+        "C:\Python311\python.exe",
+        "C:\Python310\python.exe",
+        "$env:ProgramFiles\Python312\python.exe",
+        "$env:ProgramFiles\Python311\python.exe",
+        "$env:ProgramFiles\Python310\python.exe"
+    )
+    foreach ($candExe in $commonDirs) {
+        if (Test-Path $candExe) {
+            try {
+                $code = "import sys; print(f'{sys.version_info.major} {sys.version_info.minor} {sys.executable}')"
+                $res = & $candExe -c $code 2>$null
+                if ($LASTEXITCODE -eq 0 -and $res) {
+                    $parts = ($res -split '\s+').Trim()
+                    if ($parts.Length -ge 3) {
+                        $maj = [int]$parts[0]
+                        $min = [int]$parts[1]
+                        $exe = $parts[2..($parts.Length-1)] -join ' '
+                        if ($maj -eq 3 -and ($min -ge 10 -and $min -le 12) -and (Test-Path $exe)) {
+                            return @{
+                                Executable = $exe
+                                Version = "3.$min"
+                                Source = "Ruta estándar ($exe)"
+                            }
+                        }
+                    }
+                }
+            } catch { }
+        }
+    }
+
+    return $null
+}
+
+# --- Creación de Atajos CLI en Windows (.bat wrappers) ---
+
+function Create-CliShortcuts {
+    param([string]$VenvPython)
+
+    if (-not (Test-Path $Script:BinDir)) {
+        New-Item -ItemType Directory -Path $Script:BinDir -Force | Out-Null
+    }
+
+    $shortcuts = @(
+        @{ Name = "handtalk-captura"; Target = "inicio\gui_captura.py"; Desc = "Captura de señas" },
+        @{ Name = "handtalk-entrenar"; Target = "inicio\train_classifier.py"; Desc = "Entrenamiento de modelo" },
+        @{ Name = "handtalk-traducir"; Target = "inicio\realtime_translator.py"; Desc = "Traducción en vivo" },
+        @{ Name = "handtalk-visor"; Target = "web_server.py"; Desc = "Servidor web y visor remoto de HandTalk" }
+    )
+
+    foreach ($item in $shortcuts) {
+        $batPath = Join-Path $Script:BinDir "$($item.Name).bat"
+        $scriptPath = Join-Path $Script:ProjectRoot $item.Target
+
+        $batContent = @"
+@echo off
+setlocal
+cd /d "$Script:ProjectRoot"
+"$VenvPython" "$scriptPath" %*
+endlocal
+"@
+        Set-Content -Path $batPath -Value $batContent -Encoding ASCII
+    }
+
+    # Agregar la carpeta de binarios al PATH de Usuario si no existe
+    $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+    if ($null -eq $userPath) { $userPath = "" }
+    $parts = $userPath -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    
+    if ($parts -notcontains $Script:BinDir) {
+        $newPath = if ([string]::IsNullOrWhiteSpace($userPath)) {
+            $Script:BinDir
+        } else {
+            "$userPath;$Script:BinDir"
+        }
+        [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
+    }
+
+    # Actualizar PATH de la sesión actual
+    $sessionParts = $env:PATH -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    if ($sessionParts -notcontains $Script:BinDir) {
+        $env:PATH = "$Script:BinDir;$env:PATH"
+    }
+}
+
+function Remove-CliShortcuts {
+    $shortcuts = @("handtalk-captura.bat", "handtalk-entrenar.bat", "handtalk-traducir.bat", "handtalk-visor.bat")
+    foreach ($sc in $shortcuts) {
+        $scPath = Join-Path $Script:BinDir $sc
+        if (Test-Path $scPath) {
+            Remove-Item -Path $scPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # Si la carpeta .handtalk\bin queda vacía, eliminarla ordenadamente
+    if (Test-Path $Script:BinDir) {
+        $items = Get-ChildItem -Path $Script:BinDir -ErrorAction SilentlyContinue
+        if (-not $items) {
+            Remove-Item -Path $Script:BinDir -Force -Recurse -ErrorAction SilentlyContinue
+            $parent = Split-Path $Script:BinDir -Parent
+            $parentItems = Get-ChildItem -Path $parent -ErrorAction SilentlyContinue
+            if (-not $parentItems) {
+                Remove-Item -Path $parent -Force -Recurse -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    # Remover del PATH de Usuario
+    $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+    if ($userPath -like "*$Script:BinDir*") {
+        $parts = $userPath -split ';' | Where-Object {
+            $_ -ne $Script:BinDir -and (-not [string]::IsNullOrWhiteSpace($_))
+        }
+        $newPath = $parts -join ';'
+        [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
+    }
+}
+
+# --- Auditoría de Cámara Virtual y Regla de Firewall (Windows) ---
+
+function Test-VirtualCamDriver {
+    $driverFound = $false
+    $driverName = ""
+
+    # 1. Comprobar CLSID comunes de OBS Virtual Camera en Registro DirectShow
+    $clsidPaths = @(
+        "HKLM:\SOFTWARE\Classes\CLSID\{27B05C2D-93DC-474A-A6DA-7B4C1A8BE8A7}",
+        "HKLM:\SOFTWARE\WOW6432Node\Classes\CLSID\{27B05C2D-93DC-474A-A6DA-7B4C1A8BE8A7}",
+        "HKCU:\SOFTWARE\Classes\CLSID\{27B05C2D-93DC-474A-A6DA-7B4C1A8BE8A7}"
+    )
+    foreach ($p in $clsidPaths) {
+        if (Test-Path $p) {
+            $driverFound = $true
+            $driverName = "OBS Virtual Camera (Registro DirectShow)"
+            break
+        }
+    }
+
+    # 2. Comprobar archivos DLL en ubicaciones estándar de OBS Studio
+    if (-not $driverFound) {
+        $dllCandidates = @(
+            "$env:ProgramFiles\obs-studio\data\obs-plugins\win-dshow\obs-virtualcam-module64.dll",
+            "${env:ProgramFiles(x86)}\obs-studio\data\obs-plugins\win-dshow\obs-virtualcam-module32.dll",
+            "$env:ProgramFiles\obs-studio\bin\64bit\obs-virtualcam-module64.dll"
+        )
+        foreach ($cand in $dllCandidates) {
+            if (Test-Path $cand) {
+                $driverFound = $true
+                $driverName = "OBS Virtual Camera ($cand)"
+                break
+            }
+        }
+    }
+
+    # 3. Comprobar UnityCaptureFilter
+    if (-not $driverFound) {
+        $unityClsid = "HKLM:\SOFTWARE\Classes\CLSID\{8E1DA6E1-4899-4A73-B561-BD5A760EB3B8}"
+        if (Test-Path $unityClsid) {
+            $driverFound = $true
+            $driverName = "Unity Capture Filter"
+        }
+    }
+
+    return @{
+        Found = $driverFound
+        Name = $driverName
+    }
+}
+
+function Add-HandTalkFirewallRule {
+    try {
+        $existing = Get-NetFirewallRule -DisplayName "HandTalk Web Viewer" -ErrorAction SilentlyContinue
+        if (-not $existing) {
+            New-NetFirewallRule -DisplayName "HandTalk Web Viewer" -Direction Inbound -LocalPort 8000 -Protocol TCP -Profile Private -Action Allow -ErrorAction SilentlyContinue | Out-Null
+            Write-Centered "      $($Script:ChOk) Regla de Firewall creada para puerto 8000 (Red Privada)." "Green"
+        } else {
+            Write-Centered "      $($Script:ChOk) Regla de Firewall para puerto 8000 ya configurada." "Green"
+        }
+    } catch {
+        Write-Centered "      $($Script:ChWrn) No se pudo configurar la regla de firewall automáticamente (requiere permisos de Administrador)." "Yellow"
+    }
+}
+
+# --- Acción 1: Instalación Completa ---
+
+function Start-Installation {
+    Show-HeaderBanner
+    Write-BoxTop
+    Write-BoxRow "PROCESO DE INSTALACION COMPLETA (WINDOWS)" "center" "White"
+    Write-BoxBottom
+    Write-Centered ""
+
+    # Detección preventiva de Smart App Control (SAC) en Windows 11
+    $sacPre = Test-SmartAppControl
+    if ($sacPre.IsEnforced) {
+        Show-SmartAppControlAlert
+    }
+
+    # 1. Detección de Python compatible
+    Write-Centered "[1/5] Buscando intérprete Python compatible (3.10 - 3.12)..." "Cyan"
+    $pyInfo = Find-CompatiblePython
+
+    if (-not $pyInfo) {
+        Write-Centered ""
+        Write-BoxTop
+        Write-BoxRow "$($Script:ChErr) ERROR: VERSION DE PYTHON NO COMPATIBLE" "center" "Red"
+        Write-BoxSep
+        Write-BoxRow "MediaPipe 0.10.14 requiere Python 3.10, 3.11 o 3.12." "center" "White"
+        Write-BoxRow "Python 3.13+ o <3.10 NO poseen compatibilidad de wheels." "center" "Yellow"
+        Write-BoxRow "" "center" "White"
+        Write-BoxRow "Opciones recomendadas para Windows:" "left" "Cyan"
+        Write-BoxRow "  $($Script:ChDot) winget install -e --id Python.Python.3.11" "left_tight" "White"
+        Write-BoxRow "  $($Script:ChDot) Descargar instalador de Python 3.11 desde python.org:" "left_tight" "White"
+        Write-BoxRow "    https://www.python.org/downloads/release/python-3119/" "left_tight" "DarkGray"
+        Write-BoxRow "  $($Script:ChDot) Recuerde marcar: 'Add python.exe to PATH'." "left_tight" "Yellow"
+        Write-BoxBottom
+        Wait-Enter
+        return
+    }
+
+    $pythonExe = $pyInfo.Executable
+    $pythonVer = $pyInfo.Version
+    Write-Centered "      $($Script:ChOk) Localizado: $pythonExe (v$pythonVer)" "Green"
+    Write-Centered ""
+
+    # 2. Creación del entorno virtual (venv)
+    Write-Centered "[2/5] Configurando entorno virtual en: .\venv" "Cyan"
+    if (Test-Path $Script:VenvDir) {
+        Write-Centered "      $($Script:ChWrn) Ya existe un entorno virtual previo." "Yellow"
+        Prompt-Centered "¿Desea recrearlo desde cero? [s/N]: " "White"
+        $recreate = [System.Console]::ReadLine()
+        if ($null -eq $recreate) { $recreate = "" }
+        if ($recreate -match '^[sSyY]') {
+            Write-Centered "      Eliminando entorno anterior..." "DarkGray"
+            Remove-Item -Path $Script:VenvDir -Recurse -Force
+            & $pythonExe -m venv $Script:VenvDir *>"$Script:LogFile"
+        } else {
+            Write-Centered "      $($Script:ChInf) Conservando entorno virtual existente." "Cyan"
+        }
+    } else {
+        & $pythonExe -m venv $Script:VenvDir *>"$Script:LogFile"
+    }
+
+    $venvPython = Join-Path $Script:VenvDir "Scripts\python.exe"
+
+    if (-not (Test-Path $venvPython)) {
+        Write-Centered "      $($Script:ChErr) Error al generar entorno virtual. Revise $Script:LogFile" "Red"
+        Wait-Enter
+        return
+    }
+    Write-Centered "      $($Script:ChOk) Entorno virtual preparado con éxito." "Green"
+    Write-Centered ""
+
+    # 3. Actualización de gestores de paquetes con intérprete firmado
+    Write-Centered "[3/5] Actualizando gestor pip mediante el intérprete firmado..." "Cyan"
+    & $venvPython -m pip install --upgrade pip setuptools wheel *>>"$Script:LogFile"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Centered "      $($Script:ChWrn) Advertencia al actualizar pip; continuando..." "Yellow"
+    } else {
+        Write-Centered "      $($Script:ChOk) Gestores de paquetes listos." "Green"
+    }
+    Write-Centered ""
+
+    # 4. Instalación de dependencias armonizadas
+    Write-Centered "[4/5] Instalando dependencias armonizadas desde inicio\requirements.txt..." "Cyan"
+    Write-Centered "      (Garantizando NumPy < 2.0 y OpenCV 4.x para MediaPipe 0.10.14)" "DarkGray"
+
+    & $venvPython -m pip install -r $Script:RequirementsFile *>>"$Script:LogFile"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Centered ""
+        Write-BoxTop
+        Write-BoxRow "$($Script:ChErr) ERROR AL INSTALAR DEPENDENCIAS" "center" "Red"
+        Write-BoxSep
+        Write-BoxRow "Hubo un problema al descargar o compilar las librerías." "center" "White"
+        Write-BoxRow "Consulte los detalles en el archivo de registro:" "center" "DarkGray"
+        Write-BoxRow "$Script:LogFile" "center" "Yellow"
+        Write-BoxBottom
+        Wait-Enter
+        return
+    }
+
+    # Asegurar runtime de C++ para MediaPipe en Windows
+    Sync-MediaPipeRuntime
+
+    # Verificación de consistencia del árbol de dependencias
+    & $venvPython -m pip check *>>"$Script:LogFile"
+    Write-Centered "      $($Script:ChOk) Dependencias instaladas y verificadas sin conflictos." "Green"
+    Write-Centered ""
+
+    # 5. Creación de Atajos CLI
+    Write-Centered "[5/5] Generando atajos de terminal en $Script:BinDir..." "Cyan"
+    Create-CliShortcuts -VenvPython $venvPython
+    Write-Centered "      $($Script:ChOk) Atajos creados (.bat) y agregados al PATH del usuario." "Green"
+    Write-Centered ""
+
+    # Auditoría de Driver de Cámara Virtual y Regla de Firewall para Visor Web
+    Write-Centered "Verificando soporte de Cámara Virtual y Red..." "Cyan"
+    $vcam = Test-VirtualCamDriver
+    if ($vcam.Found) {
+        Write-Centered "      $($Script:ChOk) Driver de Cámara Virtual detectado: $($vcam.Name)" "Green"
+    } else {
+        Write-Centered "      $($Script:ChWrn) Driver DirectShow de OBS Virtual Cam no detectado." "Yellow"
+        Write-Centered "      Aviso: La cámara virtual en Meet/Zoom requiere instalar OBS Studio." "DarkGray"
+    }
+
+    Add-HandTalkFirewallRule
+    Write-Centered ""
+
+    # 6. Verificación Post-Instalación (Smoke Test Modular)
+    Write-Centered "Ejecutando verificación de carga de librerías..." "White"
+    $modResults = Test-ModuleImports -VenvPython $venvPython
+    $allOk = $true
+    $hasSacBlock = $false
+
+    if ($modResults -and $modResults.Count -gt 0) {
+        foreach ($m in $modResults) {
+            if ($m.status -eq "OK") {
+                Write-Centered "      $($Script:ChOk) $($m.name): v$($m.version)" "Green"
+            } else {
+                $allOk = $false
+                Write-Centered "      $($Script:ChErr) $($m.name): Falló la carga" "Red"
+                if ($m.error -like "*Control de aplicaciones*" -or $m.error -like "*Application Control*") {
+                    $hasSacBlock = $true
+                }
+            }
+        }
+    } else {
+        $allOk = $false
+    }
+    Write-Centered ""
+
+    if ($allOk) {
+        Write-BoxTop
+        Write-BoxRow "¡INSTALACION COMPLETADA CON EXITO!" "center" "Green"
+        Write-BoxSep
+        Write-BoxRow "Ya puede invocar HandTalk directamente desde CMD o PowerShell:" "center" "White"
+        Write-BoxRow "" "center" "White"
+        Write-BoxRow "  1. handtalk-captura   $($Script:ChArr) Captura y recolección de señas" "left_tight" "Cyan"
+        Write-BoxRow "  2. handtalk-entrenar  $($Script:ChArr) Entrenamiento del clasificador" "left_tight" "Cyan"
+        Write-BoxRow "  3. handtalk-traducir  $($Script:ChArr) Traducción en tiempo real (cámara)" "left_tight" "Cyan"
+        Write-BoxRow "  4. handtalk-visor     $($Script:ChArr) Servidor web y visor remoto de HandTalk" "left_tight" "Cyan"
+        Write-BoxRow "" "center" "White"
+        Write-BoxRow "Nota: Debe abrir una nueva terminal de PowerShell para" "center" "DarkGray"
+        Write-BoxRow "usar los atajos (no funcionan en esta misma ventana)." "center" "DarkGray"
+        Write-BoxBottom
+    } else {
+        if ($hasSacBlock) {
+            Write-Centered "      $($Script:ChWrn) Dependencias instaladas, pero bloqueadas por Windows SAC." "Yellow"
+            Show-SmartAppControlAlert
+        } else {
+            Write-Centered "      $($Script:ChWrn) Advertencia: Revise los módulos en $Script:LogFile" "Yellow"
+        }
+    }
+
+    Wait-Enter
+}
+
+# --- Acción 2: Actualización de Dependencias ---
+
+function Update-Dependencies {
+    Show-HeaderBanner
+    Write-BoxTop
+    Write-BoxRow "ACTUALIZACION DE DEPENDENCIAS (WINDOWS)" "center" "White"
+    Write-BoxBottom
+    Write-Centered ""
+
+    # 1. Validación de Pre-requisito: Entorno virtual
+    $venvPython = Join-Path $Script:VenvDir "Scripts\python.exe"
+    if (-not (Test-Path $Script:VenvDir) -or -not (Test-Path $venvPython)) {
+        Write-BoxTop
+        Write-BoxRow "$($Script:ChErr) ERROR: ENTORNO VIRTUAL NO ENCONTRADO" "center" "Red"
+        Write-BoxSep
+        Write-BoxRow "No se detectó un entorno virtual válido en .\venv." "center" "White"
+        Write-BoxRow "No se pueden actualizar dependencias sin un entorno previo." "center" "Yellow"
+        Write-BoxRow "" "center" "White"
+        Write-BoxRow "Solución recomendada:" "left" "Cyan"
+        Write-BoxRow "  $($Script:ChDot) Ejecute primero la opción [1] (Instalación Completa)." "left_tight" "White"
+        Write-BoxBottom
+        Wait-Enter
+        return
+    }
+
+    # 2. Validación de Pre-requisito: Atajos CLI
+    $shortcuts = @("handtalk-captura.bat", "handtalk-entrenar.bat", "handtalk-traducir.bat", "handtalk-visor.bat")
+    $missingShortcuts = $shortcuts | Where-Object { -not (Test-Path (Join-Path $Script:BinDir $_)) }
+    if ($missingShortcuts) {
+        Write-BoxTop
+        Write-BoxRow "$($Script:ChErr) ERROR: ATAJOS CLI NO ENCONTRADOS" "center" "Red"
+        Write-BoxSep
+        Write-BoxRow "No se encontraron los atajos globales en el directorio:" "center" "White"
+        Write-BoxRow "$Script:BinDir" "center" "Yellow"
+        Write-BoxRow "El sistema requiere que la instalación inicial esté completa." "center" "White"
+        Write-BoxRow "" "center" "White"
+        Write-BoxRow "Solución recomendada:" "left" "Cyan"
+        Write-BoxRow "  $($Script:ChDot) Ejecute primero la opción [1] (Instalación Completa)." "left_tight" "White"
+        Write-BoxBottom
+        Wait-Enter
+        return
+    }
+
+    # 3. Validación de Pre-requisito: Archivo requirements.txt
+    if (-not (Test-Path $Script:RequirementsFile)) {
+        Write-BoxTop
+        Write-BoxRow "$($Script:ChErr) ERROR: ARCHIVO DE REQUERIMIENTOS NO ENCONTRADO" "center" "Red"
+        Write-BoxSep
+        Write-BoxRow "No se encontró el archivo inicio\requirements.txt." "center" "White"
+        Write-BoxBottom
+        Wait-Enter
+        return
+    }
+
+    # Ejecución de la actualización
+    Write-Centered "[1/3] Validando entorno virtual y atajos CLI..." "Cyan"
+    Write-Centered "      $($Script:ChOk) Entorno virtual y atajos detectados correctamente." "Green"
+    Write-Centered ""
+
+    Write-Centered "[2/3] Sincronizando dependencias desde inicio\requirements.txt..." "Cyan"
+    Write-Centered "      (Solo se instalarán paquetes nuevos o pendientes)" "DarkGray"
+
+    & $venvPython -m pip install -r $Script:RequirementsFile *>>"$Script:LogFile"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Centered ""
+        Write-BoxTop
+        Write-BoxRow "$($Script:ChErr) ERROR AL ACTUALIZAR DEPENDENCIAS" "center" "Red"
+        Write-BoxSep
+        Write-BoxRow "Hubo un problema al instalar las nuevas librerías." "center" "White"
+        Write-BoxRow "Consulte los detalles en el archivo de registro:" "center" "DarkGray"
+        Write-BoxRow "$Script:LogFile" "center" "Yellow"
+        Write-BoxBottom
+        Wait-Enter
+        return
+    }
+
+    # Asegurar runtime de C++ para MediaPipe en Windows y verificar árbol
+    Sync-MediaPipeRuntime
+    & $venvPython -m pip check *>>"$Script:LogFile"
+    Write-Centered "      $($Script:ChOk) Dependencias instaladas y verificadas." "Green"
+    Write-Centered ""
+
+    Write-Centered "[3/3] Ejecutando verificación de módulos..." "Cyan"
+    $modResults = Test-ModuleImports -VenvPython $venvPython
+    if ($modResults -and $modResults.Count -gt 0) {
+        foreach ($m in $modResults) {
+            if ($m.status -eq "OK") {
+                Write-Centered "      $($Script:ChOk) $($m.name): v$($m.version)" "Green"
+            } else {
+                Write-Centered "      $($Script:ChWrn) $($m.name): $($m.error)" "Yellow"
+            }
+        }
+    }
+    Write-Centered ""
+
+    # Resumen de éxito
+    Write-BoxTop
+    Write-BoxRow "¡DEPENDENCIAS ACTUALIZADAS CON EXITO!" "center" "Green"
+    Write-BoxSep
+    Write-BoxRow "El entorno virtual ahora cuenta con todas las librerías" "center" "White"
+    Write-BoxRow "especificadas en inicio\requirements.txt." "center" "White"
+    Write-BoxRow "" "center" "White"
+    Write-BoxRow "Sus atajos y modelos continúan listos para usar." "center" "DarkGray"
+    Write-BoxBottom
+
+    Wait-Enter
+}
+
+# --- Acción 3: Desinstalación ---
+
+function Start-Uninstallation {
+    Show-HeaderBanner
+    Write-BoxTop
+    Write-BoxRow "DESINSTALACION DE HANDTALK" "center" "Yellow"
+    Write-BoxSep
+    Write-BoxRow "Esta acción eliminará el entorno virtual (.\venv)" "center" "White"
+    Write-BoxRow "y los atajos creados en $($Script:BinDir)." "center" "White"
+    Write-BoxBottom
+    Write-Centered ""
+
+    Prompt-Centered "¿Está seguro de que desea desinstalar HandTalk? [s/N]: " "Red"
+    $confirm = [System.Console]::ReadLine()
+    if ($null -eq $confirm) { $confirm = "" }
+    if ($confirm -notmatch '^[sSyY]') {
+        Write-Centered ""
+        Write-Centered "Operación cancelada. No se realizaron modificaciones." "Yellow"
+        Wait-Enter
+        return
+    }
+
+    Write-Centered ""
+    Write-Centered "[1/3] Eliminando entorno virtual .\venv..." "Cyan"
+    if (Test-Path $Script:VenvDir) {
+        Remove-Item -Path $Script:VenvDir -Recurse -Force
+        Write-Centered "      $($Script:ChOk) Entorno virtual eliminado." "Green"
+    } else {
+        Write-Centered "      $($Script:ChInf) No se encontró carpeta venv\." "DarkGray"
+    }
+
+    Write-Centered "[2/3] Eliminando atajos de terminal en $($Script:BinDir)..." "Cyan"
+    Remove-CliShortcuts
+    Write-Centered "      $($Script:ChOk) Atajos eliminados." "Green"
+
+    Write-Centered "[3/3] Limpiando configuraciones de PATH del usuario..." "Cyan"
+    Write-Centered "      $($Script:ChOk) Registro de PATH actualizado." "Green"
+    Write-Centered ""
+
+    Write-BoxTop
+    Write-BoxRow "DESINSTALACION COMPLETADA" "center" "Green"
+    Write-BoxSep
+    Write-BoxRow "Todos los componentes generados han sido retirados." "center" "White"
+    Write-BoxRow "Sus datos y modelos entrenados se mantienen intactos." "center" "DarkGray"
+    Write-BoxBottom
+
+    Wait-Enter
+}
+
+# --- Bucle Principal del Menú (4 Opciones) ---
+
+function Main {
+    do {
+        Show-HeaderBanner
+        Show-MainMenu
+        Prompt-Centered "Seleccione una opción [1-4]: " "Cyan"
+        $choice = [System.Console]::ReadLine()
+        if ($null -eq $choice) { $choice = "" }
+
+        switch ($choice.Trim()) {
+            "1" {
+                Start-Installation
+            }
+            "2" {
+                Update-Dependencies
+            }
+            "3" {
+                Start-Uninstallation
+            }
+            "4" {
+                Show-HeaderBanner
+                Write-BoxTop
+                Write-BoxRow "¡GRACIAS POR USAR HANDTALK!" "center" "White"
+                Write-BoxSep
+                Write-BoxRow "Lenguaje de Señas Potenciado con Visión e IA" "center" "DarkGray"
+                Write-BoxBottom
+                Write-Centered ""
+                return
+            }
+            default {
+                Write-Centered ""
+                Write-Centered "Opción no válida. Ingrese 1, 2, 3 o 4." "Red"
+                Start-Sleep -Milliseconds 1200
+            }
+        }
+    } while ($true)
+}
+
+Main

@@ -1,98 +1,41 @@
-# STATUS.md — Estado Actual del Visor Web (HandTalk)
+# 📊 Estado de Avance del Proyecto
 
+Este documento sirve como registro rápido de las tareas completadas y el progreso actual del equipo.
 
-## 1. Qué hace ahora mismo
+## ✅ Tareas Completadas
 
-- El servidor abre la webcam de la **PC** con OpenCV y la transmite como video (MJPEG) a cualquier dispositivo que entre a la página.
-- El texto de la traducción se manda por WebSocket, independiente del video, y se muestra como subtítulo superpuesto.
-- Actualmente el texto es de **prueba** (`demo_loop`): manda una palabra distinta cada 3 segundos, para verificar que el flujo completo funciona antes de conectar el modelo real de señas.
-- **No** se usa la cámara del celular en esta versión — por eso funciona en HTTP normal, sin restricciones de navegador.
+### 🛠️ Infraestructura y Base (Semanas Iniciales)
+- [x] **Depuración de Proyecto**: Limpieza de archivos obsoletos y datasets externos.
+- [x] **Entorno de Trabajo**: Configuración de entorno virtual compatible con Python 3.12.
+- [x] **Gestión de Dependencias**: Creación de `requirements.txt` con versiones estables de MediaPipe y OpenCV.
+- [x] **Control de Versiones**: Configuración de repositorio GitHub con `.gitignore` optimizado.
+- [x] **Guía de Inicio**: Creación de `README.md` con instrucciones de instalación y uso.
+- [x] **Instaladores Automatizados**: Creación de scripts `install.sh` y `install.ps1` para configuración rápida del entorno y atajos de terminal.
 
----
+### 🧩 Fase 1 - MVP Base (Bloqueante)
+- [x] **Francisco (Tarea 1)**: Conexión de la GUI de captura con el motor de normalización de `hand_features.py`.
+- [x] **Herber (Tarea 1)**: Implementación de la nueva interfaz de captura de señas (`gui_captura.py`).
+- [x] **Validación de Flujo**: Prueba exitosa de Captura $\rightarrow$ Entrenamiento $\rightarrow$ Traducción.
+- [x] **Definición de Interfaz**: Definición del contrato de interfaz para el evento "palabra confirmada" (`EVENTOS.md`).
 
-## 2. Estructura de archivos necesaria
-
-```
-HandTalk/
-├── web_server.py       <- Backend FastAPI (servidor + stream + websocket)
-├── visor.html           <- Página que ve el celular/navegador
-├── generar_qr.py         <- Script para obtener el enlace + QR
-```
-
-Los tres archivos deben estar en la **misma carpeta**, porque `web_server.py` sirve `visor.html` directamente desde ahí (`FileResponse("visor.html")`), y `generar_qr.py` genera el QR apuntando al mismo puerto que usa `web_server.py`.
-La estrcutura de estos archivos puede cambiar pero para pruebas es suficiente por ahora.
-
----
-
-## 3. Cómo funciona cada parte
-
-### `web_server.py` (backend)
-| Ruta | Qué hace |
-|---|---|
-| `GET /` | Sirve `visor.html` |
-| `GET /stream` | Transmite la webcam de la PC en formato MJPEG (multipart) |
-| `WS /ws/translations` | Mantiene la conexión abierta y manda la palabra traducida en JSON cada vez que hay una nueva |
-
-### `visor.html` (frontend)
-- Muestra el `<img>` con el stream de la webcam (`src` se arma dinámicamente con `window.location.host`, no está hardcodeado).
-- Se conecta al WebSocket y muestra la palabra recibida en un `<div>` superpuesto con `textContent` (nunca `innerHTML`, por seguridad).
-
-### `generar_qr.py`
-- Detecta automáticamente la IP de la PC en la red local (sin tocar el gateway ni la tabla de rutas).
-- Genera `qr_visor.png` con el enlace `http://<IP>:8000`.
-- También imprime el QR directamente en la terminal en ASCII, para probarlo sin abrir ningún archivo.
+### 🌐 Fase 2 - Visor Web (En Desarrollo)
+- [x] **Servidor Backend**: Implementación de servidor FastAPI con streaming de video MJPEG.
+- [x] **Comunicación en Tiempo Real**: Implementación de WebSocket para envío de traducciones.
+- [x] **Acceso Simplificado**: Implementación de detector de IP local y generador de códigos QR.
+- [x] **Frontend del Visor**: Creación de `visor.html` para visualización de video y subtítulos en dispositivos móviles.
+- [x] **Prueba de Concepto**: Verificación del flujo completo utilizando un ciclo de prueba (`demo_loop`).
 
 ---
 
-## 4. Dependencias anexadas
+## 🕒 Próximas Tareas (Prioridad)
 
-```bash
-pip install fastapi uvicorn[standard] 
-opencv-python 
-qrcode[pil]
-```
-
----
-
-## 5. Pasos para levantarlo
-
-### Paso 1 — Levantar el servidor
-Desde la carpeta donde están los tres archivos:
-
-```bash
-uvicorn web_server:app --host 0.0.0.0 --port 8000 --reload
-```
-
-**Importante:** el `--host 0.0.0.0` es obligatorio. Sin él, uvicorn solo escucha en `127.0.0.1` y ningún otro dispositivo de la red puede conectarse, aunque el firewall esté bien configurado.
-
-Deberías ver algo como:
-```
-Uvicorn running on http://0.0.0.0:8000
-```
-
-### Paso 2 — Generar el QR (en otra terminal, con el servidor ya corriendo)
-
-```bash
-python generar_qr.py
-```
-
-Esto imprime la IP detectada, guarda `qr_visor.png`, y muestra el QR en la terminal:
-```
-IP detectada:  192.168.1.45
-Enlace visor:  http://192.168.1.45:8000/viewer
-QR guardado en: qr_visor.png
-```
-
-### Paso 3 — Probar
-1. Desde la misma PC: abre `http://localhost:8000` en el navegador — deberías ver tu propia webcam con un subtítulo de prueba cambiando cada 3 segundos.
-2. Desde el celular (misma red Wi-Fi): escanea el QR o entra manualmente a la URL que imprimió `generar_qr.py`.
-
-Si el celular no carga la página, revisa primero:
-- Que el celular esté en la **misma red Wi-Fi** que la PC.
-- Que el firewall de Windows/Linux permita conexiones entrantes al puerto 8000 (regla de red privada).
+### Integración y Pulido
+- [ ] **Conexión Real**: Reemplazar el `demo_loop` del visor web por la llamada real desde el motor de traducción (`on_translation_confirmed` de `EVENTOS.md`).
+- [ ] **Cámara Virtual**: Investigación e integración de `pyvirtualcam` para emitir video con subtítulos a apps de videollamada (Zoom, Meet, Teams).
+- [ ] **Seguridad Web**: Implementar el esquema de seguridad propuesto en `Documentacion/plan_integracion.MD` (Tokens, PIN, Rate Limiting, CSP).
+- [ ] **Diseño Visual**: Mejorar la interfaz del visor web según los requerimientos de diseño.
 
 ---
 
-## 6. Pendiente / próximos pasos
-- [ ] tomar en cuenta el diseño para el live viewer
-- [ ] Reemplazar `demo_loop` por la llamada real desde el motor de traducción (`on_translation_confirmed` de `EVENTOS.md`).
+**Última actualización**: 2026-09-13
+**Estado General**: 🟢 Fase 1 Finalizada | 🟡 Fase 2 (Visor Web) en etapa de integración.

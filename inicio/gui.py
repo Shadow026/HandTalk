@@ -45,8 +45,14 @@ class TranslatorGUI:
         # Centrar ventana
         self.center_window()
         
-        # Variable para procesos
+        # Variables para procesos y servicios integrados (Módulo 5)
         self.current_process = None
+        self.virtual_cam_manager = None
+        self.web_server_process = None
+        self.qr_modal_window = None
+
+        # Configurar atajos de teclado centralizados
+        self.setup_keyboard_shortcuts()
     
     def setup_styles(self):
         """Configurar estilos y colores"""
@@ -305,10 +311,10 @@ class TranslatorGUI:
         footer.pack(fill=tk.X, side=tk.BOTTOM)
         footer.pack_propagate(False)
         
-        # Version e info
+        # Version e info con atajos disponibles
         info_text = tk.Label(
             footer,
-            text="v2.0 | TensorFlow - MediaPipe - OpenCV",
+            text="v2.0 | F2: QR/PIN | F3: Cám Virtual | F4: Web Server | F5: Regenerar",
             font=("Segoe UI", 8),
             bg="#DFE6E9",
             fg="#636E72"
@@ -849,6 +855,230 @@ print("=" * 50)
         close_btn.bind("<Button-1>", lambda e: info_window.destroy())
         close_btn.bind("<Enter>", lambda e: close_btn.config(bg="#c0392b"))
         close_btn.bind("<Leave>", lambda e: close_btn.config(bg="#e74c3c"))
+
+    # ==============================================================================
+    # SISTEMA CENTRALIZADO DE ATAJOS DE TECLADO (MÓDULO 5 - ROL JASON)
+    # ==============================================================================
+
+    def setup_keyboard_shortcuts(self):
+        """Registrar atajos globales de teclado en la ventana principal"""
+        # Ctrl + Q / F2 -> Mostrar/Ocultar modal con Código QR y PIN
+        self.root.bind("<Control-q>", self.toggle_qr_modal)
+        self.root.bind("<Control-Q>", self.toggle_qr_modal)
+        self.root.bind("<F2>", self.toggle_qr_modal)
+
+        # Ctrl + V / F3 -> Alternar Cámara Virtual On/Off
+        self.root.bind("<Control-v>", self.toggle_virtual_cam)
+        self.root.bind("<Control-V>", self.toggle_virtual_cam)
+        self.root.bind("<F3>", self.toggle_virtual_cam)
+
+        # Ctrl + W / F4 -> Iniciar/Detener Servidor Web FastAPI
+        self.root.bind("<Control-w>", self.toggle_web_server)
+        self.root.bind("<Control-W>", self.toggle_web_server)
+        self.root.bind("<F4>", self.toggle_web_server)
+
+        # Ctrl + R / F5 -> Regenerar Token y PIN de acceso web
+        self.root.bind("<Control-r>", self.regenerate_credentials)
+        self.root.bind("<Control-R>", self.regenerate_credentials)
+        self.root.bind("<F5>", self.regenerate_credentials)
+
+    def toggle_virtual_cam(self, event=None):
+        """Alternar Cámara Virtual On/Off (Ctrl+V / F3)"""
+        try:
+            from inicio.virtual_cam import VirtualCamManager
+            if self.virtual_cam_manager is None:
+                self.virtual_cam_manager = VirtualCamManager(width=640, height=480, fps=30)
+
+            is_active = self.virtual_cam_manager.toggle()
+            if is_active:
+                messagebox.showinfo("Cámara Virtual", "✓ Cámara Virtual HandTalk ACTIVADA.\nSeleccionable en Google Meet, Zoom o Teams.")
+            else:
+                messagebox.showinfo("Cámara Virtual", "ℹ Cámara Virtual HandTalk DESACTIVADA.")
+        except Exception as e:
+            messagebox.showwarning(
+                "Cámara Virtual",
+                f"No se pudo inicializar la cámara virtual:\n{str(e)}\n\n"
+                "Asegúrese de contar con v4l2loopback en Linux o OBS Studio en Windows."
+            )
+
+    def toggle_web_server(self, event=None):
+        """Iniciar/Detener Servidor Web FastAPI (Ctrl+W / F4)"""
+        if self.web_server_process is not None and self.web_server_process.poll() is None:
+            try:
+                self.web_server_process.terminate()
+                self.web_server_process.wait(timeout=2)
+            except Exception:
+                try:
+                    self.web_server_process.kill()
+                except Exception:
+                    pass
+            self.web_server_process = None
+            messagebox.showinfo("Servidor Web", "ℹ Servidor Web de HandTalk DETENIDO.")
+        else:
+            web_script = os.path.join(self.project_root, "web_server.py")
+            if not os.path.exists(web_script):
+                messagebox.showerror("Error", f"No se encontró el script web en:\n{web_script}")
+                return
+
+            try:
+                env = os.environ.copy()
+                env['PYTHONPATH'] = self.project_root
+                self.web_server_process = subprocess.Popen(
+                    [sys.executable, web_script],
+                    cwd=self.project_root,
+                    env=env
+                )
+                messagebox.showinfo(
+                    "Servidor Web",
+                    "✓ Servidor Web de HandTalk INICIADO en http://0.0.0.0:8000.\n"
+                    "Presione Ctrl+Q o F2 para ver el Código QR y PIN de vinculación."
+                )
+            except Exception as e:
+                messagebox.showerror("Error", f"Fallo al arrancar servidor web:\n{str(e)}")
+
+    def regenerate_credentials(self, event=None):
+        """Regenerar Token / PIN e invalidar sesiones web activas (Ctrl+R / F5)"""
+        try:
+            from inicio.web_security import get_session_manager
+            manager = get_session_manager()
+            _, nuevo_pin = manager.regenerate_credentials()
+
+            if self.qr_modal_window is not None and self.qr_modal_window.winfo_exists():
+                self.qr_modal_window.destroy()
+                self.qr_modal_window = None
+                self.toggle_qr_modal()
+
+            messagebox.showinfo(
+                "Credenciales Regeneradas",
+                f"✓ Se ha generado un nuevo PIN: {nuevo_pin}\n"
+                "Todas las sesiones web previas fueron revocadas por seguridad."
+            )
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudieron regenerar las credenciales:\n{str(e)}")
+
+    def toggle_qr_modal(self, event=None):
+        """Mostrar/Ocultar modal con el Código QR y PIN de acceso (Ctrl+Q / F2)"""
+        if self.qr_modal_window is not None and self.qr_modal_window.winfo_exists():
+            self.qr_modal_window.destroy()
+            self.qr_modal_window = None
+            return
+
+        try:
+            if self.project_root not in sys.path:
+                sys.path.insert(0, self.project_root)
+            import qr_generator
+            qr_info = qr_generator.generar_info_visor()
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al generar código QR:\n{str(e)}")
+            return
+
+        modal = tk.Toplevel(self.root)
+        self.qr_modal_window = modal
+        modal.title("Vincular Celular — Visor HandTalk")
+        modal.geometry("460x620")
+        modal.resizable(False, False)
+        modal.configure(bg="#12131c")
+        modal.transient(self.root)
+
+        modal.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - 230
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - 310
+        modal.geometry(f"+{x}+{y}")
+
+        title_lbl = tk.Label(
+            modal,
+            text="📱 Vinculación de Visor Móvil",
+            font=("Segoe UI", 16, "bold"),
+            bg="#12131c",
+            fg="white"
+        )
+        title_lbl.pack(pady=(20, 5))
+
+        sub_lbl = tk.Label(
+            modal,
+            text="Escanee el QR con su celular conectado a la misma red Wi-Fi",
+            font=("Segoe UI", 9),
+            bg="#12131c",
+            fg="#8c93b0"
+        )
+        sub_lbl.pack(pady=(0, 15))
+
+        qr_img_path = qr_info.get("archivo_qr", "qr_visor.png")
+        if not os.path.isabs(qr_img_path):
+            qr_img_path = os.path.join(self.project_root, qr_img_path)
+
+        if os.path.exists(qr_img_path):
+            try:
+                from PIL import Image, ImageTk
+                img = Image.open(qr_img_path).resize((220, 220), Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS)
+                photo = ImageTk.PhotoImage(img)
+                qr_label = tk.Label(modal, image=photo, bg="#12131c", borderwidth=0)
+                qr_label.image = photo
+                qr_label.pack(pady=10)
+            except Exception:
+                tk.Label(modal, text="[Código QR guardado en disco]", bg="#12131c", fg="#2ed573").pack(pady=10)
+        else:
+            tk.Label(modal, text="[QR no disponible]", bg="#12131c", fg="#eb4d4b").pack(pady=10)
+
+        pin_frame = tk.Frame(modal, bg="#1a1b26", padx=20, pady=10, relief=tk.RIDGE, bd=1)
+        pin_frame.pack(pady=10, fill=tk.X, padx=40)
+
+        tk.Label(
+            pin_frame,
+            text="PIN de Acceso Manual:",
+            font=("Segoe UI", 9),
+            bg="#1a1b26",
+            fg="#a4b0be"
+        ).pack()
+
+        pin_val = tk.Label(
+            pin_frame,
+            text=qr_info.get("pin", "------"),
+            font=("Courier New", 24, "bold"),
+            bg="#1a1b26",
+            fg="#2ed573"
+        )
+        pin_val.pack(pady=5)
+
+        net_info = tk.Label(
+            modal,
+            text=f"IP: {qr_info.get('ip')}  •  Puerto: {qr_info.get('puerto')}\nEnlace: {qr_info.get('url_directa')}",
+            font=("Segoe UI", 8),
+            bg="#12131c",
+            fg="#636e72"
+        )
+        net_info.pack(pady=(5, 15))
+
+        btn_frame = tk.Frame(modal, bg="#12131c")
+        btn_frame.pack(pady=5)
+
+        regen_btn = tk.Button(
+            btn_frame,
+            text="🔄 Regenerar PIN",
+            font=("Segoe UI", 9),
+            bg="#2f3542",
+            fg="white",
+            relief=tk.FLAT,
+            padx=12,
+            pady=5,
+            cursor="hand2",
+            command=self.regenerate_credentials
+        )
+        regen_btn.pack(side=tk.LEFT, padx=8)
+
+        close_btn = tk.Button(
+            btn_frame,
+            text="Cerrar",
+            font=("Segoe UI", 9, "bold"),
+            bg="#6c5ce7",
+            fg="white",
+            relief=tk.FLAT,
+            padx=16,
+            pady=5,
+            cursor="hand2",
+            command=modal.destroy
+        )
+        close_btn.pack(side=tk.LEFT, padx=8)
 
 
 def main():
