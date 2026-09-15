@@ -18,12 +18,13 @@ Este documento sirve como registro rápido de las tareas completadas y el progre
 - [x] **Validación de Flujo**: Prueba exitosa de Captura $\rightarrow$ Entrenamiento $\rightarrow$ Traducción.
 - [x] **Definición de Interfaz**: Definición del contrato de interfaz para el evento "palabra confirmada" (`EVENTOS.md`).
 
-### 🌐 Fase 2 - Visor Web (En Desarrollo)
+### 🌐 Fase 2 - Visor Web (Finalizada)
 - [x] **Servidor Backend**: Implementación de servidor FastAPI con streaming de video MJPEG.
 - [x] **Comunicación en Tiempo Real**: Implementación de WebSocket para envío de traducciones.
 - [x] **Acceso Simplificado**: Implementación de detector de IP local y generador de códigos QR.
 - [x] **Frontend del Visor**: Creación de `visor.html` para visualización de video y subtítulos en dispositivos móviles.
-- [x] **Prueba de Concepto**: Verificación del flujo completo utilizando un ciclo de prueba (`demo_loop`).
+- [x] **Conexión Real**: Reemplazo del `demo_loop` por un pipeline de inferencia en tiempo real integrado con el motor de traducción.
+- [x] **Seguridad Web**: Implementación de autenticación por PIN/QR, Rate Limiting (SlowAPI), sanitización XSS y cabeceras de seguridad (CSP).
 
 ### 🛠️ Control de Calidad y Estabilidad
 - [x] **Optimización de UI**: Eliminación de parpadeos en la captura de video mediante arquitectura de hilos desacoplados (`gui_captura.py`).
@@ -36,9 +37,7 @@ Este documento sirve como registro rápido de las tareas completadas y el progre
 ## 🕒 Próximas Tareas (Prioridad)
 
 ### Integración y Pulido
-- [ ] **Conexión Real**: Reemplazar el `demo_loop` del visor web por la llamada real desde el motor de traducción (`on_translation_confirmed` de `EVENTOS.md`).
 - [ ] **Cámara Virtual**: Investigación e integración de `pyvirtualcam` para emitir video con subtítulos a apps de videollamada (Zoom, Meet, Teams).
-- [ ] **Seguridad Web**: Implementar el esquema de seguridad propuesto en `Documentacion/plan_integracion.MD` (Tokens, PIN, Rate Limiting, CSP).
 - [ ] **Diseño Visual**: Mejorar la interfaz del visor web según los requerimientos de diseño.
 
 ---
