@@ -30,7 +30,7 @@ import hand_features
 from smoothing import PredictionSmoother
 
 MODELS_DIR = "./models"
-
+NOMBRE_VENTANA = "Traductor de Senas Personalizado"
 
 class CustomSignTranslator:
     def __init__(self, models_dir=MODELS_DIR, max_hands=1, rotate_invariant=True,
@@ -119,10 +119,13 @@ class CustomSignTranslator:
         return frame
 
     def run_webcam(self, camera_id=None):
+
         cap, resolved_id = camera_utils.open_camera(camera_id)
         if cap is None:
             print("[ERROR] No se encontro ninguna camara disponible")
             return
+
+        cv2.namedWindow(NOMBRE_VENTANA, cv2.WINDOW_NORMAL)
 
         print(f"[OK] Camara {resolved_id} abierta. Presiona Q para salir, S para guardar captura.")
         try:
@@ -136,8 +139,18 @@ class CustomSignTranslator:
                 label, confidence, results, confirmed = self.predict(frame)
                 frame = self.draw_overlay(frame, label, confidence, results, confirmed)
 
-                cv2.imshow("Traductor de Senas Personalizado", frame)
+                cv2.imshow(NOMBRE_VENTANA, frame)
+
+                # waitKey es quien procesa los eventos de la ventana (incluido
+                # el clic en la X), por eso debe ir ANTES de revisar la propiedad.
                 key = cv2.waitKey(1) & 0xFF
+
+                # Si el usuario cerró la ventana con la X, esta propiedad
+                # ya queda en < 1 justo después del waitKey de arriba.
+                if cv2.getWindowProperty(NOMBRE_VENTANA, cv2.WND_PROP_VISIBLE) < 1:
+                    print("[OK] Ventana cerrada por el usuario.")
+                    break
+
                 if key in (ord("q"), ord("Q")):
                     break
                 elif key in (ord("s"), ord("S")):
@@ -147,8 +160,7 @@ class CustomSignTranslator:
         finally:
             cap.release()
             cv2.destroyAllWindows()
-            print(f"\\n[OK] Historial de traduccion: {' '.join(self.history[-20:])}")
-
+            print(f"\n[OK] Historial de traduccion: {' '.join(self.history[-20:])}")
 
 def main():
     parser = argparse.ArgumentParser(description="Traductor de señas personalizado en tiempo real")

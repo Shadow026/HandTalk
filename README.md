@@ -136,13 +136,20 @@ Esta sección documenta el estado actual del sistema tras las pruebas generales,
 | Módulo | Problema Detectado | Comportamiento Esperado | Estado |
 | :--- | :--- | :--- | :--- |
 | **`gui_captura.py`** | **Parpadeo de Imagen**: La transmisión de video de la cámara presenta saltos o parpadeos intermitentes durante la captura. | Un flujo de video fluido y estable para facilitar la recolección de muestras. | ⏳ Pendiente |
-| **`realtime_translator.py`** | **Fallo en Cierre de Ventana**: El icono de cierre ('X') de la interfaz gráfica no finaliza el proceso del programa. | Que la aplicación se cierre completamente al cerrar la ventana. | ⏳ Pendiente |
 | **`web_server.py`** | **Imprecisión en Traducción Remota**: Las palabras enviadas al visor web a veces carecen de precisión en tiempo real. | Implementar un filtro de "palabra confirmada" o ajustar el porcentaje de confianza para coincidir con la precisión de la versión nativa. | ⏳ Pendiente |
 | **`General / Cámara`** | **Conflicto de Recursos (Cámara)**: `realtime_translator.py` y `web_server.py` no pueden ejecutarse simultáneamente ni de forma secuencial inmediata. | **Propuesta Tentativa**: Integrar la ejecución del visor web directamente desde `realtime_translator.py` para gestionar un único hilo de cámara y evitar el bloqueo del recurso. | ⏳ Pendiente |
 
-> **Nota sobre el cierre**: Actualmente, para finalizar `realtime_translator.py`, es necesario regresar a la terminal y ejecutar la combinación de teclas `Ctrl + C`.
->
 > **Nota sobre la Cámara**: Tras realizar pruebas de funcionamiento con dos hilos de cámara, se ha confirmado que `realtime_translator.py` y `web_server.py` no pueden ejecutarse al mismo tiempo ni de forma secuencial inmediata debido a que el handler de la cámara mantiene el recurso bloqueado. **Se plantea como propuesta tentativa integrar la ejecución del visor directamente desde el traductor en tiempo real para resolver este conflicto.**
+
+### 🛠️ Hotfixes (Soluciones Rápidas)
+
+Esta sección registra las correcciones aplicadas recientemente para mejorar la estabilidad del sistema:
+
+*   **`realtime_translator.py` (Cierre de Ventana)**: Se ha solucionado el problema donde la aplicación no se cerraba al hacer clic en la 'X'.
+    *   **El Problema**: OpenCV no notifica automáticamente el cierre de la ventana al hilo de Python, manteniendo el proceso activo en segundo plano.
+    *   **La Solución**: Se implementó una verificación dual en el bucle principal:
+        1.  `cv2.waitKey(1)`: Forza el procesamiento de eventos de la interfaz gráfica.
+        2.  `cv2.getWindowProperty(..., cv2.WND_PROP_VISIBLE)`: Verifica si la ventana sigue siendo visible. Si el valor cae por debajo de 1, el programa reconoce el cierre y finaliza la ejecución limpiamente.
 
 ### 🚀 Análisis de Rendimiento y Latencia (Visor Web)
 
