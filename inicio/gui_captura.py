@@ -110,11 +110,11 @@ class CaptureGUI:
             # El hilo secundario SOLO captura y procesa frames (nada de Tkinter aquí)
             self.frame_actual = None
             self.frame_lock = threading.Lock()
-            self.thread = threading.Thread(target=self.captura_loop, daemon=True)
+            self.thread = threading.Thread(target=self.capture_loop, daemon=True)
             self.thread.start()
 
             # El hilo principal (Tkinter) es quien actualiza el Label
-            self.video_loop()
+            self.update_video()
         else:
             self.is_capturing = False
             self.cap.release()
@@ -144,7 +144,7 @@ class CaptureGUI:
                 self.frame_actual = frame
 
         self.cap and self.cap.release()
-
+        
     def update_video(self):
         """Corre en el hilo principal (Tkinter) vía root.after(). Aquí sí se
         puede tocar el widget de forma segura."""
@@ -163,9 +163,9 @@ class CaptureGUI:
             self.video_label.config(image=imgtk, text="")
 
         # Se reprograma a sí mismo cada ~15ms (~60 FPS máximo), siempre
-            # dentro del hilo principal de Tkinter.
-        self.root.after(15, self.actualizar_video)
-
+        # dentro del hilo principal de Tkinter.
+        self.root.after(15, self.update_video)
+        
     def save_current_sample(self):
         word = self.word_entry.get().strip()
         if not word:
