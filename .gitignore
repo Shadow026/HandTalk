@@ -31,3 +31,6 @@ Thumbs.db
 
 # Configuración local
 camera_config.json
+
+# Imagen QR generada
+qr_visor.png
