@@ -25,6 +25,12 @@ Este documento sirve como registro rápido de las tareas completadas y el progre
 - [x] **Frontend del Visor**: Creación de `visor.html` para visualización de video y subtítulos en dispositivos móviles.
 - [x] **Prueba de Concepto**: Verificación del flujo completo utilizando un ciclo de prueba (`demo_loop`).
 
+### 🛠️ Control de Calidad y Estabilidad
+- [x] **Optimización de UI**: Eliminación de parpadeos en la captura de video mediante arquitectura de hilos desacoplados (`gui_captura.py`).
+- [x] **Gestión de Interfaz**: Solución al cierre forzado de la aplicación al cerrar la ventana con la 'X' (`realtime_translator.py`).
+- [x] **Análisis de Rendimiento**: Pruebas de latencia en el Visor Web para diversos dispositivos móviles y laptops.
+- [x] **Guía de Conectividad**: Documentación de configuración de Firewall y red para acceso externo al visor web.
+
 ---
 
 ## 🕒 Próximas Tareas (Prioridad)
@@ -37,5 +43,5 @@ Este documento sirve como registro rápido de las tareas completadas y el progre
 
 ---
 
-**Última actualización**: 2026-09-13
+**Última actualización**: 2026-09-15
 **Estado General**: 🟢 Fase 1 Finalizada | 🟡 Fase 2 (Visor Web) en etapa de integración.
