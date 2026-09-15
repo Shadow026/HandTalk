@@ -25,6 +25,7 @@ Este documento sirve como registro rápido de las tareas completadas y el progre
 - [x] **Frontend del Visor**: Creación de `visor.html` para visualización de video y subtítulos en dispositivos móviles.
 - [x] **Conexión Real**: Reemplazo del `demo_loop` por un pipeline de inferencia en tiempo real integrado con el motor de traducción.
 - [x] **Seguridad Web**: Implementación de autenticación por PIN/QR, Rate Limiting (SlowAPI), sanitización XSS y cabeceras de seguridad (CSP).
+- [x] **Cámara Virtual**: Integración de `pyvirtualcam` para emitir video con subtítulos a apps de videollamada (Zoom, Meet, Teams) con soporte multiplataforma y degradación suave.
 
 ### 🛠️ Control de Calidad y Estabilidad
 - [x] **Optimización de UI**: Eliminación de parpadeos en la captura de video mediante arquitectura de hilos desacoplados (`gui_captura.py`).
@@ -34,13 +35,19 @@ Este documento sirve como registro rápido de las tareas completadas y el progre
 
 ---
 
+### 🚀 Mejoras Adicionales (Fuera de Plan Original)
+- [x] **Modernización de GUI**: Rediseño completo de la interfaz principal con arquitectura de tarjetas, efectos de hover y paleta de colores profesional.
+- [x] **Soporte Multimodal**: Implementación de módulos independientes para traducción de dígitos (0-9) y letras (A-Z) integrados en una sola plataforma.
+- [x] **Tolerancia a Fallos**: Implementación de degradación suave en el módulo de cámara virtual para evitar cierres inesperados del sistema.
+
+---
+
 ## 🕒 Próximas Tareas (Prioridad)
 
 ### Integración y Pulido
-- [ ] **Cámara Virtual**: Investigación e integración de `pyvirtualcam` para emitir video con subtítulos a apps de videollamada (Zoom, Meet, Teams).
 - [ ] **Diseño Visual**: Mejorar la interfaz del visor web según los requerimientos de diseño.
 
 ---
 
 **Última actualización**: 2026-09-15
-**Estado General**: 🟢 Fase 1 Finalizada | 🟡 Fase 2 (Visor Web) en etapa de integración.
+**Estado General**: 🟢 Fase 1 Finalizada | 🟢 Fase 2 (Visor Web) Finalizada.
