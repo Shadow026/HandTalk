@@ -124,3 +124,41 @@ HandTalk permite transmitir la traducción a cualquier dispositivo (celular, tab
 *   `Documentacion/`: Planes de trabajo y guion técnico.
 *   `web_server.py`, `visor.html`, `qr_generator.py`: Componentes del sistema de visualización remota.
 *   `install.sh`, `install.ps1`: Scripts de instalación automatizada.
+
+---
+
+## 🛠️ Control de Calidad y Puntos de Mejora
+
+Esta sección documenta el estado actual del sistema tras las pruebas generales, identificando comportamientos inesperados y recomendaciones técnicas para asegurar el correcto funcionamiento.
+
+### 🐞 Incidentes Técnicos (Bugs)
+
+| Módulo | Problema Detectado | Comportamiento Esperado | Estado |
+| :--- | :--- | :--- | :--- |
+| **`gui_captura.py`** | **Parpadeo de Imagen**: La transmisión de video de la cámara presenta saltos o parpadeos intermitentes durante la captura. | Un flujo de video fluido y estable para facilitar la recolección de muestras. | ⏳ Pendiente |
+| **`realtime_translator.py`** | **Fallo en Cierre de Ventana**: El icono de cierre ('X') de la interfaz gráfica no finaliza el proceso del programa. | Que la aplicación se cierre completamente al cerrar la ventana. | ⏳ Pendiente |
+| **`web_server.py`** | **Imprecisión en Traducción Remota**: Las palabras enviadas al visor web a veces carecen de precisión en tiempo real. | Implementar un filtro de "palabra confirmada" o ajustar el porcentaje de confianza para coincidir con la precisión de la versión nativa. | ⏳ Pendiente |
+| **`General / Cámara`** | **Conflicto de Recursos (Cámara)**: `realtime_translator.py` y `web_server.py` no pueden ejecutarse simultáneamente ni de forma secuencial inmediata. | **Propuesta Tentativa**: Integrar la ejecución del visor web directamente desde `realtime_translator.py` para gestionar un único hilo de cámara y evitar el bloqueo del recurso. | ⏳ Pendiente |
+
+> **Nota sobre el cierre**: Actualmente, para finalizar `realtime_translator.py`, es necesario regresar a la terminal y ejecutar la combinación de teclas `Ctrl + C`.
+>
+> **Nota sobre la Cámara**: Tras realizar pruebas de funcionamiento con dos hilos de cámara, se ha confirmado que `realtime_translator.py` y `web_server.py` no pueden ejecutarse al mismo tiempo ni de forma secuencial inmediata debido a que el handler de la cámara mantiene el recurso bloqueado. **Se plantea como propuesta tentativa integrar la ejecución del visor directamente desde el traductor en tiempo real para resolver este conflicto.**
+
+### 🚀 Análisis de Rendimiento y Latencia (Visor Web)
+
+Se ha realizado un test exhaustivo del Visor Web para evaluar la fluidez de la transmisión en diferentes dispositivos. Los resultados indican que la latencia varía según los recursos de hardware del dispositivo receptor:
+
+*   **Dispositivos con 8GB RAM (Ej. Smartphone)**: No se ha detectado latencia perceptible; la transmisión es fluida.
+*   **Dispositivos con 4GB RAM (Ej. Laptop)**: Se ha detectado una latencia leve en algunos segmentos de la transmisión.
+
+**Conclusión**: Si bien el rendimiento es más notable en dispositivos con menos RAM, esto ocurre solo en momentos aislados y no llega a comprometer la experiencia de usuario ni la funcionalidad del sistema.
+
+### 🌐 Notas de Conectividad y Red (Importante)
+
+Para evitar errores de conexión al utilizar el **Visor Web** con dispositivos externos (móviles, tablets), ten en cuenta lo siguiente:
+
+*   **Configuración del Firewall**: Por defecto, Windows y otros sistemas operativos pueden bloquear el tráfico entrante en el puerto `8000`. Si el servidor `web_server.py` está activo pero el dispositivo externo no puede conectar:
+    1.  Accede a la configuración de **Firewall de Windows**.
+    2.  **Permisos de Aplicación**: Asegúrate de que el ejecutable de **Python** tenga marcadas las casillas de permitir comunicación en redes **Privadas** y **Públicas**.
+    3.  Asegúrate de que ambos dispositivos estén conectados a la misma red Wi-Fi.
+*   **Dirección IP**: Verifica que estés utilizando la IP privada de tu computadora (ej. `192.168.1.x`) y no `localhost` o `127.0.0.1` en el dispositivo externo.
