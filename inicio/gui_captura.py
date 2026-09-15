@@ -107,9 +107,14 @@ class CaptureGUI:
             self.btn_capture.config(state=tk.NORMAL)
             self.is_capturing = True
 
-            # Iniciar hilo de lectura de video
-            self.thread = threading.Thread(target=self.video_loop, daemon=True)
+            # El hilo secundario SOLO captura y procesa frames (nada de Tkinter aquí)
+            self.frame_actual = None
+            self.frame_lock = threading.Lock()
+            self.thread = threading.Thread(target=self.captura_loop, daemon=True)
             self.thread.start()
+
+            # El hilo principal (Tkinter) es quien actualiza el Label
+            self.video_loop()
         else:
             self.is_capturing = False
             self.cap.release()
@@ -118,7 +123,8 @@ class CaptureGUI:
             self.btn_capture.config(state=tk.DISABLED)
             self.video_label.config(image='', text="La cámara estará aquí")
 
-    def video_loop(self):
+    def capture_loop(self):
+        """Corre en un hilo aparte: SOLO captura y procesa, nunca toca Tkinter."""
         while self.is_capturing:
             ret, frame = self.cap.read()
             if not ret:
@@ -128,23 +134,37 @@ class CaptureGUI:
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             results = self.hands.process(rgb_frame)
 
-            # Dibujar landmarks para feedback visual
             if results.multi_hand_landmarks:
                 for hand_landmarks in results.multi_hand_landmarks:
                     self.mp_draw.draw_landmarks(
                         frame, hand_landmarks, self.mp_hands.HAND_CONNECTIONS
                     )
 
-            # Convertir OpenCV frame a formato compatible con Tkinter
-            img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            with self.frame_lock:
+                self.frame_actual = frame
+
+        self.cap and self.cap.release()
+
+    def update_video(self):
+        """Corre en el hilo principal (Tkinter) vía root.after(). Aquí sí se
+        puede tocar el widget de forma segura."""
+        if not self.is_capturing:
+            return
+
+        with self.frame_lock:
+            frame = self.frame_actual.copy() if self.frame_actual is not None else None
+
+        if frame is not None:
             from PIL import Image, ImageTk
+            img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             img = Image.fromarray(img)
             imgtk = ImageTk.PhotoImage(image=img)
-
             self.video_label.imgtk = imgtk
             self.video_label.config(image=imgtk, text="")
 
-        cv2.destroyAllWindows()
+        # Se reprograma a sí mismo cada ~15ms (~60 FPS máximo), siempre
+            # dentro del hilo principal de Tkinter.
+        self.root.after(15, self.actualizar_video)
 
     def save_current_sample(self):
         word = self.word_entry.get().strip()

@@ -151,6 +151,13 @@ Esta sección registra las correcciones aplicadas recientemente para mejorar la 
         1.  `cv2.waitKey(1)`: Forza el procesamiento de eventos de la interfaz gráfica.
         2.  `cv2.getWindowProperty(..., cv2.WND_PROP_VISIBLE)`: Verifica si la ventana sigue siendo visible. Si el valor cae por debajo de 1, el programa reconoce el cierre y finaliza la ejecución limpiamente.
 
+*   **`gui_captura.py` (Parpadeo de Pantalla)**: Se eliminaron los saltos y parpadeos en la visualización del video.
+    *   **El Problema**: Se intentaba actualizar los widgets de Tkinter directamente desde el hilo de captura de la cámara, lo que generaba conflictos de concurrencia y fallos en el renderizado de la interfaz.
+    *   **La Solución**: Se implementó una arquitectura de **hilos separados**:
+        1.  **Hilo de Captura**: Un hilo secundario dedicado exclusivamente a leer frames de la cámara y procesar landmarks.
+        2.  **Hilo de Interfaz**: El hilo principal de Tkinter actualiza el video mediante `root.after()`, asegurando que el renderizado ocurra en el ciclo de eventos correcto.
+        3.  **Sincronización**: Se añadió un `threading.Lock()` para transferir los frames entre hilos de forma segura, evitando la corrupción de datos y eliminando el parpadeo.
+
 ### 🚀 Análisis de Rendimiento y Latencia (Visor Web)
 
 Se ha realizado un test exhaustivo del Visor Web para evaluar la fluidez de la transmisión en diferentes dispositivos. Los resultados indican que la latencia varía según los recursos de hardware del dispositivo receptor:
