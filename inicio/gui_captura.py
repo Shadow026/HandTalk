@@ -23,18 +23,21 @@ import hand_features
 import dataset_manager
 
 class CaptureGUI:
-    def __init__(self, root):
+    def __init__(self, root, parent_frame=None, camera_id=None):
         self.root = root
-        self.root.title("Captura de Señas Personalizadas")
-        self.root.geometry("1100x700")
-        self.root.configure(bg="#F0F2F5")
+        self.parent_frame = parent_frame or root
+        self.is_standalone = (parent_frame is None)
+        if self.is_standalone:
+            self.root.title("Captura de Señas Personalizadas")
+            self.root.geometry("1100x700")
+            self.root.configure(bg="#F0F2F5")
 
         # Estado de la aplicación
         self.is_capturing = False
         self.current_word = ""
         self.sample_count = 0
         self.cap = None
-        self.camera_id = None
+        self.camera_id = camera_id
 
         # MediaPipe Hands
         self.mp_hands = mp.solutions.hands
@@ -48,9 +51,26 @@ class CaptureGUI:
 
         self.setup_ui()
 
+    def cleanup(self):
+        """Detiene la cámara y limpia recursos para permitir que otra pestaña use la cámara."""
+        if self.is_capturing or self.cap is not None:
+            self.is_capturing = False
+            if self.cap is not None:
+                try:
+                    self.cap.release()
+                except Exception:
+                    pass
+                self.cap = None
+            if hasattr(self, 'btn_camera'):
+                self.btn_camera.config(text="Abrir Cámara")
+            if hasattr(self, 'btn_capture'):
+                self.btn_capture.config(state=tk.DISABLED)
+            if hasattr(self, 'video_label'):
+                self.video_label.config(image='', text="La cámara estará aquí")
+
     def setup_ui(self):
         # Panel Lateral (Controles)
-        self.side_panel = tk.Frame(self.root, bg="#FFFFFF", width=300, padx=20, pady=20)
+        self.side_panel = tk.Frame(self.parent_frame, bg="#FFFFFF", width=300, padx=20, pady=20)
         self.side_panel.pack(side=tk.LEFT, fill=tk.Y)
         self.side_panel.pack_propagate(False)
 
@@ -83,7 +103,7 @@ class CaptureGUI:
         self.update_words_list()
 
         # Panel Principal (Video)
-        self.main_panel = tk.Frame(self.root, bg="#F0F2F5")
+        self.main_panel = tk.Frame(self.parent_frame, bg="#F0F2F5")
         self.main_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=20, pady=20)
 
         self.video_label = tk.Label(self.main_panel, text="La cámara estará aquí",
@@ -98,7 +118,7 @@ class CaptureGUI:
 
     def toggle_camera(self):
         if self.cap is None:
-            self.cap, self.camera_id = camera_utils.open_camera()
+            self.cap, self.camera_id = camera_utils.open_camera(self.camera_id)
             if self.cap is None:
                 messagebox.showerror("Error", "No se pudo abrir la cámara.")
                 return

@@ -1,83 +1,66 @@
-# 📜 Changelog - HandTalk
+# Changelog - HandTalk
 
-Este documento registra los cambios, mejoras y correcciones aplicadas al sistema de reconocimiento de lenguaje de señas, detallando las modificaciones a nivel de código.
-
-## 2026-09-14
-
-### 🛠️ Mejoras en `realtime_translator.py`
-**Corrección del sistema de cierre de aplicación**
-
-#### ❌ Antes (Cierre dependiente de tecla)
-El programa solo podía cerrarse si el usuario presionaba la tecla 'Q'. Si se cerraba la ventana con la 'X', el proceso seguía corriendo en segundo plano.
-```python
-# Lógica anterior
-cv2.imshow("Traductor de Senas Personalizado", frame)
-key = cv2.waitKey(1) & 0xFF
-if key in (ord("q"), ord("Q")):
-    break
-```
-
-#### ✅ Después (Cierre basado en estado de ventana)
-Se implementó la detección de la propiedad de visibilidad de la ventana.
-```python
-# Definición de ventana normalizada
-cv2.namedWindow(NOMBRE_VENTANA, cv2.WINDOW_NORMAL)
-
-# ... dentro del bucle ...
-cv2.imshow(NOMBRE_VENTANA, frame)
-key = cv2.waitKey(1) & 0xFF
-
-# El fix: Detectar si la ventana fue cerrada mediante la 'X'
-if cv2.getWindowProperty(NOMBRE_VENTANA, cv2.WND_PROP_VISIBLE) < 1:
-    print("[OK] Ventana cerrada por el usuario.")
-    break
-```
-- **Resultado**: Salida inmediata y limpia del proceso al cerrar la interfaz gráfica.
+Registro cronológico y técnico de cambios, mejoras y correcciones aplicadas a la plataforma HandTalk.
 
 ---
 
-### 🛠️ Mejoras en `gui_captura.py`
-**Optimización del renderizado de video (Eliminación de parpadeos)**
+## [2026-09-15] - Unificación en Menú Universal, Integración de Instaladores y Estabilización
 
-#### ❌ Antes (Procesamiento y UI en el mismo hilo)
-La captura de frames y la actualización del widget de Tkinter ocurrían en el mismo hilo secundario, causando bloqueos en la UI y parpadeos constantes.
-```python
-def video_loop(self):
-    while self.is_capturing:
-        ret, frame = self.cap.read()
-        # ... procesamiento de MediaPipe ...
-        
-        # ERROR: Actualizar Tkinter desde un hilo que no es el principal
-        imgtk = ImageTk.PhotoImage(image=img)
-        self.video_label.config(image=imgtk, text="")
-```
-
-#### ✅ Después (Arquitectura Desacoplada con Lock)
-Se separó la responsabilidad de captura y renderizado en dos flujos distintos coordinados por un cerrojo (`Lock`).
-
-**1. Hilo de Captura (Procesamiento Pesado):**
-```python
-def capture_loop(self):
-    while self.is_capturing:
-        ret, frame = self.cap.read()
-        # ... procesamiento de MediaPipe ...
-        with self.frame_lock: # Escritura segura
-            self.frame_actual = frame
-```
-
-**2. Hilo de Interfaz (Renderizado Fluido):**
-```python
-def update_video(self):
-    with self.frame_lock: # Lectura segura
-        frame = self.frame_actual.copy() if self.frame_actual is not None else None
-    
-    if frame is not None:
-        # ... conversión a PhotoImage ...
-        self.video_label.config(image=imgtk, text="")
-    
-    # Programación asíncrona en el hilo principal de Tkinter
-    self.root.after(15, self.update_video)
-```
-- **Resultado**: Se eliminó el parpadeo visual y se optimizó el uso de CPU al desacoplar el procesamiento de la tasa de refresco de la interfaz.
+### 1. Nuevo Menú Universal (`inicio/menu_universal.py`)
+- **Interfaz Centralizada**: Se desarrolló una aplicación unificada en Tkinter con diseño moderno y navegación lateral (Sidebar) dividida en 4 módulos principales:
+  - **Pestaña 1 - Inicio**: Diagnóstico en tiempo real del entorno (conteo de señas registradas, total de muestras en dataset, estado del modelo entrenado e IP local detectada para el visor web), junto con una guía de inicio rápido.
+  - **Pestaña 2 - Captura**: Integración embebida del módulo de captura de datos con esqueleto MediaPipe en tiempo real y guardado de fotogramas.
+  - **Pestaña 3 - Entrenar**: Panel de administración de vocabulario con conteo de muestras por seña, validación mínima de clases (requiere al menos 2 señas) y ejecución asíncrona del entrenamiento con barra de progreso y salida por consola en vivo sin bloquear la interfaz.
+  - **Pestaña 4 - Traducir y Visor Web**: Inferencia en tiempo real utilizando el modelo entrenado con suavizado de predicciones, salidas configurables para Texto a Voz (TTS) y Cámara Virtual (`v4l2loopback`).
+- **Activación Condicional del Visor Web**: El acceso al Visor Web permanece inactivo hasta que la traducción en vivo esté en ejecución. Al activarse, despliega una ventana modal con:
+  - Código QR generado dinámicamente.
+  - Enlace local clickeable (`http://localhost:8000/viewer`).
+  - PIN de seguridad de 6 dígitos con botón para copiar al portapapeles.
+- **Gestión del Ciclo de Vida del Hardware**:
+  - Implementación de controladores `on_leave` y `on_enter` en el cambio de pestañas para liberar inmediatamente el dispositivo de captura (`cap.release()`), resolviendo conflictos de contención de cámara en OpenCV.
 
 ---
+
+### 2. Desacoplamiento del Servidor Web (`web_server.py`)
+- **Modo de Alimentación Externa**: Se incorporó la función `set_external_feed_mode(True)` para desvincular el servidor FastAPI/Uvicorn de la cámara física cuando se ejecuta desde el Menú Universal.
+- **Sincronización de Flujos**:
+  - `update_remote_frame(frame)`: Envío de frames procesados al endpoint `/stream` (MJPEG).
+  - `broadcast_translation_sync(word, confidence)`: Emisión de predicciones confirmadas hacia clientes conectados mediante WebSockets.
+  - `start_server_background(host, port)`: Inicialización limpia del servidor web en un hilo secundario asíncrono.
+
+---
+
+### 3. Modularización de la Captura de Datos (`inicio/gui_captura.py`)
+- **Soporte para Embebido**: Se agregaron los parámetros `parent_frame` y `camera_id` en `CaptureGUI`, permitiendo ejecutar la interfaz como componente interno del Menú Universal o de forma independiente (`standalone`).
+- **Limpieza de Recursos**: Se implementó el método `cleanup()` para detener el hilo de captura y liberar la cámara al alternar de módulo o cerrar la ventana.
+
+---
+
+### 4. Corrección de Errores (Bug Fixes)
+- **Corrección de Inicialización de Traducción**:
+  - Se resolvió la excepción `NameError: name 'realtime_translator' is not defined` en `inicio/menu_universal.py` mediante la importación explícita del módulo `realtime_translator`.
+- **Limpieza de Widgets**:
+  - Se eliminó la llamada duplicada `btn_copy.pack(pady=(4, 0))` en la ventana modal del Visor Web.
+
+---
+
+### 5. Profesionalización Visual y Eliminación de Emojis
+- **Estandarización de Interfaz**: Se removieron todos los emojis decorativos en las vistas de la aplicación de escritorio (`inicio/menu_universal.py`, `inicio/gui_captura.py`) y en los registros de consola, adoptando indicadores textuales claros (`[OK]`, `[Aviso]`, `->`, `*`).
+- **Interfaz Web (`login.html`)**: Se reemplazaron los emojis por iconos vectoriales SVG limpios para el isotipo y el indicador de seguridad de red local.
+
+---
+
+### 6. Actualización de Instaladores y Atajos del Sistema
+- **Scripts de Instalación (`install.sh` y `install.ps1`)**:
+  - Se añadió la creación del comando unificado `handtalk` en `create_cli_shortcuts()` para Linux y `handtalk.bat` para Windows.
+  - Se integró la generación del lanzador de escritorio (`handtalk.desktop` / acceso directo).
+  - Se actualizaron las funciones de desinstalación limpia (`remove_cli_shortcuts()`) y los resúmenes finales de instalación.
+- **Configuración Local**:
+  - Se generó el binario ejecutable `/home/nokia/.local/bin/handtalk`.
+  - Se creó el archivo de escritorio `~/.local/share/applications/handtalk.desktop`.
+
+---
+
+### 7. Documentación
+- **`README.md`**: Actualizado para documentar el comando principal `handtalk`, la arquitectura unificada y los atajos disponibles.
+- **`STATUS.md`**: Se registró la culminación de la fase de integración del Menú Universal.

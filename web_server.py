@@ -84,18 +84,67 @@ _vision_thread: Optional[threading.Thread] = None
 _main_event_loop: Optional[asyncio.AbstractEventLoop] = None
 _translator = None
 _virtual_cam = None
+_external_feed_mode: bool = False
+_server_thread: Optional[threading.Thread] = None
+_server_instance = None
+
+
+def set_external_feed_mode(enabled: bool = True):
+    """Configura si el servidor recibe frames de un proceso/interfaz externa."""
+    global _external_feed_mode
+    _external_feed_mode = enabled
+
+
+def update_remote_frame(frame: np.ndarray):
+    """Actualiza el frame en memoria para el endpoint /stream MJPEG desde el Menú Universal."""
+    global _latest_mjpeg_frame
+    ok, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 68])
+    if ok:
+        with _frame_lock:
+            _latest_mjpeg_frame = buffer.tobytes()
+
+
+def broadcast_translation_sync(word: str, confidence: float):
+    """Emite la traducción confirmada vía WebSocket hacia los clientes remotos."""
+    global _main_event_loop
+    if _main_event_loop and _main_event_loop.is_running():
+        asyncio.run_coroutine_threadsafe(
+            notificar_traduccion(word, confidence),
+            _main_event_loop
+        )
+
+
+def start_server_background(host="0.0.0.0", port=8000):
+    """Inicia el servidor web FastAPI en un hilo en segundo plano si no está corriendo."""
+    global _server_thread, _server_instance
+    if _server_thread and _server_thread.is_alive():
+        return _server_instance
+
+    set_external_feed_mode(True)
+    import uvicorn
+    config = uvicorn.Config(app, host=host, port=port, log_level="warning")
+    _server_instance = uvicorn.Server(config)
+    _server_thread = threading.Thread(target=_server_instance.run, daemon=True)
+    _server_thread.start()
+    return _server_instance
 
 
 def _vision_pipeline_worker():
     """
     Hilo de inferencia y visión en tiempo real:
-    - Abre la cámara física de la PC.
+    - Abre la cámara física de la PC (si no está en modo feed externo).
     - Procesa cada frame con MediaPipe y el modelo de señas preentrenado (Random Forest).
     - Cuando se confirma una seña real del dataset (ej. 'hola', 'dedo'), la emite
       inmediatamente por WebSocket a los celulares/visores conectados.
     - Almacena el frame con overlay en _latest_mjpeg_frame para el stream /stream.
     """
     global _latest_mjpeg_frame, _translator, _virtual_cam
+
+    if _external_feed_mode:
+        logger.info("Modo de feed externo activo. El servidor web utilizará los frames provistos por la interfaz.")
+        while not _stop_vision_event.is_set():
+            time.sleep(0.2)
+        return
 
     cap = None
     try:
@@ -118,7 +167,7 @@ def _vision_pipeline_worker():
                 _latest_mjpeg_frame = buf.tobytes()
         return
 
-    logger.info("✓ Captura de cámara iniciada para el traductor en vivo con IA.")
+    logger.info("[OK] Captura de camara iniciada para el traductor en vivo con IA.")
 
     try:
         while not _stop_vision_event.is_set():
@@ -135,7 +184,7 @@ def _vision_pipeline_worker():
                     frame = _translator.draw_overlay(frame, label, confidence, results, confirmed)
 
                     if confirmed:
-                        logger.info("✓ Seña real confirmada por IA: '%s' (confianza: %.2f)", confirmed, confidence)
+                        logger.info("[OK] Sena real confirmada por IA: '%s' (confianza: %.2f)", confirmed, confidence)
                         if _main_event_loop and _main_event_loop.is_running():
                             asyncio.run_coroutine_threadsafe(
                                 notificar_traduccion(confirmed, confidence),
@@ -192,7 +241,10 @@ def index(request: Request):
     """Ruta raíz: redirige a /viewer si está autenticado, o a /login si no."""
     if is_authenticated_request(request):
         return RedirectResponse(url="/viewer", status_code=status.HTTP_303_SEE_OTHER)
-    return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    response = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    if request.cookies.get(COOKIE_NAME):
+        response.delete_cookie(key=COOKIE_NAME, path="/")
+    return response
 
 
 @app.get("/auth/qr")
@@ -240,7 +292,10 @@ def login_get(request: Request):
     login_path = os.path.join(os.path.dirname(__file__), "login.html")
     if not os.path.exists(login_path):
         login_path = "login.html"
-    return FileResponse(login_path, media_type="text/html")
+    response = FileResponse(login_path, media_type="text/html")
+    if request.cookies.get(COOKIE_NAME):
+        response.delete_cookie(key=COOKIE_NAME, path="/")
+    return response
 
 
 @app.post("/login")
@@ -290,7 +345,10 @@ async def login_post(request: Request):
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="PIN incorrecto.",
             )
-        return RedirectResponse(url="/login?error=invalid_pin", status_code=status.HTTP_303_SEE_OTHER)
+        response = RedirectResponse(url="/login?error=invalid_pin", status_code=status.HTTP_303_SEE_OTHER)
+        if request.cookies.get(COOKIE_NAME):
+            response.delete_cookie(key=COOKIE_NAME, path="/")
+        return response
 
     # Crear sesión activa
     session_id = session_manager.create_session(client_ip)
@@ -324,10 +382,13 @@ async def login_post(request: Request):
 def viewer_get(request: Request):
     """
     Sirve la página del visor en vivo.
-    Requiere cookie de sesión válida; si no existe, redirige a /login.
+    Requiere cookie de sesión válida; si no existe, redirige a /login eliminando cookies viejas.
     """
     if not is_authenticated_request(request):
-        return RedirectResponse(url="/login?error=unauthorized", status_code=status.HTTP_303_SEE_OTHER)
+        response = RedirectResponse(url="/login?error=unauthorized", status_code=status.HTTP_303_SEE_OTHER)
+        if request.cookies.get(COOKIE_NAME):
+            response.delete_cookie(key=COOKIE_NAME, path="/")
+        return response
 
     visor_path = os.path.join(os.path.dirname(__file__), "visor.html")
     if not os.path.exists(visor_path):
@@ -335,6 +396,7 @@ def viewer_get(request: Request):
     return FileResponse(visor_path, media_type="text/html")
 
 
+@app.get("/logout")
 @app.post("/logout")
 def logout(request: Request):
     """Invalida la sesión actual y elimina la cookie en el cliente."""
@@ -460,7 +522,7 @@ async def startup_event():
         from realtime_translator import CustomSignTranslator
         _translator = CustomSignTranslator(models_dir=models_dir)
         logger.info(
-            "✓ Modelo IA de señas preentrenadas cargado con éxito. Señas reconocibles: %s",
+            "[OK] Modelo IA de senas preentrenadas cargado con exito. Senas reconocibles: %s",
             _translator.meta.get("words", []),
         )
     except Exception as e:

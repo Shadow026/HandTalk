@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>HandTalk - Visor</title>
     <style>
         body {
@@ -197,8 +200,15 @@
 
         // Cargar metadatos del modelo preentrenado real del proyecto
         fetch("/api/info")
-            .then(res => res.json())
+            .then(res => {
+                if (res.status === 401 || res.status === 403) {
+                    window.location.replace("/login?error=unauthorized");
+                    return null;
+                }
+                return res.json();
+            })
             .then(data => {
+                if (!data) return;
                 if (data.pretrained_words && data.pretrained_words.length > 0) {
                     modelBar.innerHTML = '<span>Señas del modelo:</span> ' +
                         data.pretrained_words.map(w => `<span class="sign-badge">${w}</span>`).join(" ");
@@ -228,6 +238,10 @@
         };
 
         ws.onclose = (event) => {
+            if (event.code === 1008 || event.reason === "No autorizado") {
+                window.location.replace("/login?error=unauthorized");
+                return;
+            }
             textoEstado.textContent = "Conexión cerrada. Recargue la página.";
             dotEstado.className = "dot error";
         };
@@ -236,6 +250,13 @@
             textoEstado.textContent = "Error de conexión con el servidor";
             dotEstado.className = "dot error";
         };
+
+        // Prevención de bfcache: si se navega desde memoria en caché, forzar recarga
+        window.addEventListener("pageshow", (event) => {
+            if (event.persisted) {
+                window.location.reload();
+            }
+        });
 
         document.getElementById("camara").onerror = () => {
             // Ocultar si no hay stream de cámara activa y dejar el área de texto limpia

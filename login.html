@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>HandTalk — Acceso al Visor</title>
     <style>
         :root {
@@ -146,7 +149,14 @@
 <body>
 
     <div class="login-card">
-        <div class="logo">👋</div>
+        <div class="logo">
+            <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#6c5ce7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v5"/>
+                <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/>
+                <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/>
+                <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>
+            </svg>
+        </div>
         <h1>HandTalk — Visor Remoto</h1>
         <p class="subtitle">Ingrese el PIN de 6 dígitos que se muestra en la pantalla de la computadora para vincular este dispositivo.</p>
 
@@ -175,7 +185,11 @@
         </form>
 
         <div class="badge-secure">
-            <span>🔒</span> Conexión Local Segura (LAN)
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+            <span>Conexión Local Segura (LAN)</span>
         </div>
 
         <p class="footer-note">También puede escanear directamente el Código QR para acceder sin ingresar el PIN.</p>

@@ -383,6 +383,7 @@ StartupNotify=true
 create_cli_shortcuts() {
     # Definición de atajos: nombre:script:descripcion:tipo:icono:titulo:titulo_generico
     local shortcuts=(
+        "handtalk:inicio/menu_universal.py:Menú universal y centro de control unificado:GUI:handtalk:HandTalk:Traductor de Señas Universal"
         "handtalk-captura:inicio/gui_captura.py:Captura y recolección de señas personalizadas:GUI:camera-web:HandTalk - Captura:Captura de Señas"
         "handtalk-entrenar:inicio/train_classifier.py:Entrenamiento del clasificador de señas:CLI:utilities-terminal:HandTalk - Entrenar:Entrenar Clasificador"
         "handtalk-traducir:inicio/realtime_translator.py:Traducción de señas en vivo con cámara:GUI:camera-web:HandTalk - Traducir:Traductor en Vivo"
@@ -528,7 +529,7 @@ EOF
 }
 
 remove_cli_shortcuts() {
-    local shortcuts=("handtalk-captura" "handtalk-entrenar" "handtalk-traducir" "handtalk-visor")
+    local shortcuts=("handtalk" "handtalk-captura" "handtalk-entrenar" "handtalk-traducir" "handtalk-visor")
 
     # 1. Eliminar ejecutables CLI de carpetas de usuario y sistema
     for name in "${shortcuts[@]}"; do
@@ -843,6 +844,7 @@ print('OK')
     print_box_sep
     print_box_row "${C_WHITE}Ya puede invocar HandTalk directamente desde cualquier terminal:${C_RESET}" "center"
     print_box_row "" "center"
+    print_box_row "${C_GREEN}${C_BOLD}  ★ handtalk            ${C_WHITE}→ Menú Universal (Suite Completa y Visor Web)${C_RESET}" "left_tight"
     print_box_row "${C_CYAN}  1. handtalk-captura   ${C_GRAY}→ Captura y recolección de señas${C_RESET}" "left_tight"
     print_box_row "${C_CYAN}  2. handtalk-entrenar  ${C_GRAY}→ Entrenamiento del clasificador${C_RESET}" "left_tight"
     print_box_row "${C_CYAN}  3. handtalk-traducir  ${C_GRAY}→ Traducción en tiempo real (cámara)${C_RESET}" "left_tight"
@@ -887,7 +889,7 @@ do_update_dependencies() {
     fi
 
     # 2. Validación de Pre-requisito: Atajos del Sistema
-    local shortcuts=("handtalk-captura" "handtalk-entrenar" "handtalk-traducir" "handtalk-visor")
+    local shortcuts=("handtalk" "handtalk-captura" "handtalk-entrenar" "handtalk-traducir" "handtalk-visor")
     local missing_shortcuts=0
     for name in "${shortcuts[@]}"; do
         if [ ! -f "${USER_BIN_DIR}/${name}" ] && [ ! -f "${SYS_BIN_DIR}/${name}" ] && ! command -v "${name}" >/dev/null 2>&1; then

@@ -170,18 +170,16 @@ function Show-HeaderBanner {
     try { Clear-Host } catch { Write-Host "`n`n" }
     Write-Centered ""
     Write-BoxTop -Width 71
-    $bV  = [char]0x2551  # ║
-    $bTL = [char]0x2554  # ╔
     $bannerRows = @(
         "██╗  ██╗ █████╗ ███╗   ██╗██████╗ ████████╗ █████╗ ██╗     ██╗  ██╗"
-        "██{0}  ██{0}██{1}══██╗████╗  ██{0}██{1}══██╗╚══██{1}══╝██{1}══██╗██{0}     ██{0} ██{1}╝"
-        "███████{0}███████{0}██{1}██╗ ██{0}██{0}  ██{0}   ██{0}   ███████{0}██{0}     █████{1}╝ "
-        "██{1}══██{0}██{1}══██{0}██{0}╚██╗██{0}██{0}  ██{0}   ██{0}   ██{1}══██{0}██{0}     ██{1}═██╗ "
-        "██{0}  ██{0}██{0}  ██{0}██{0} ╚████{0}██████{1}╝   ██{0}   ██{0}  ██{0}███████╗██{0}  ██╗"
+        "██║  ██║██╔══██╗████╗  ██║██╔══██╗╚══██╔══╝██╔══██╗██║     ██║ ██╔╝"
+        "███████║███████║██╔██╗ ██║██║  ██║   ██║   ███████║██║     █████╔╝ "
+        "██╔══██║██╔══██║██║╚██╗██║██║  ██║   ██║   ██╔══██║██║     ██╔═██╗ "
+        "██║  ██║██║  ██║██║ ╚████║██████╔╝   ██║   ██║  ██║███████╗██║  ██╗"
         "╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝    ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝"
     )
     foreach ($row in $bannerRows) {
-        Write-BoxRow ($row -f $bV, $bTL) "center" "White" -Width 71
+        Write-BoxRow $row "center" "White" -Width 71
     }
     Write-BoxRow "" "center" "White" -Width 71
     Write-BoxRow "Sistema de Reconocimiento y Traducción de Señas" "center" "Yellow" -Width 71
@@ -192,7 +190,7 @@ function Show-HeaderBanner {
 
 function Show-MainMenu {
     Write-BoxTop
-    Write-BoxRow "MENU PRINCIPAL DE GESTION (WINDOWS)" "center" "White"
+    Write-BoxRow "MENÚ PRINCIPAL DE GESTIÓN (WINDOWS)" "center" "White"
     Write-BoxSep
     Write-BoxRow "" "center" "White"
     Write-BoxRow "[1]  Instalación Completa  (Entorno + Dependencias + Atajos)" "left" "Green"
@@ -288,8 +286,16 @@ function Sync-MediaPipeRuntime {
     $mpDir = Join-Path $Script:VenvDir "Lib\site-packages\mediapipe\python"
     if (-not (Test-Path $mpDir)) { return }
 
-    # 1. Copiar desde venv\Scripts (ubicadas por el paquete msvc-runtime)
     $scriptsDir = Join-Path $Script:VenvDir "Scripts"
+
+    # DLLs críticas requeridas por MediaPipe (_framework_bindings / opencv_world)
+    $targetDlls = @(
+        "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "msvcp140_atomic_wait.dll", "msvcp140_codecvt_ids.dll",
+        "concrt140.dll", "vcruntime140.dll", "vcruntime140_1.dll", "vcruntime140_threads.dll",
+        "vcamp140.dll", "vccorlib140.dll", "vcomp140.dll"
+    )
+
+    # 1. Copiar desde venv\Scripts (donde msvc-runtime instala sus binarios)
     if (Test-Path $scriptsDir) {
         $runtimeDlls = Get-ChildItem -Path $scriptsDir -Filter "*140*.dll" -ErrorAction SilentlyContinue
         foreach ($dll in $runtimeDlls) {
@@ -297,7 +303,7 @@ function Sync-MediaPipeRuntime {
         }
     }
 
-    # 2. Copiar desde venv raíz si msvc-runtime dejó archivos allí
+    # 2. Copiar desde la raíz de venv si msvc-runtime dejó archivos allí
     $rootDlls = Get-ChildItem -Path $Script:VenvDir -Filter "*140*.dll" -ErrorAction SilentlyContinue
     foreach ($dll in $rootDlls) {
         Copy-Item -Path $dll.FullName -Destination $mpDir -Force -ErrorAction SilentlyContinue
@@ -309,6 +315,56 @@ function Sync-MediaPipeRuntime {
         $skDlls = Get-ChildItem -Path $skLibs -Filter "*140*.dll" -ErrorAction SilentlyContinue
         foreach ($dll in $skDlls) {
             Copy-Item -Path $dll.FullName -Destination $mpDir -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # 4. Copiar desde la carpeta del intérprete de Python base (sys.base_prefix)
+    $pyInfo = Find-CompatiblePython
+    if ($pyInfo -and $pyInfo.Executable) {
+        $pyBaseDir = Split-Path $pyInfo.Executable -Parent
+        if (Test-Path $pyBaseDir) {
+            $baseDlls = Get-ChildItem -Path $pyBaseDir -Filter "*140*.dll" -ErrorAction SilentlyContinue
+            foreach ($dll in $baseDlls) {
+                if (-not (Test-Path (Join-Path $mpDir $dll.Name))) {
+                    Copy-Item -Path $dll.FullName -Destination $mpDir -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+    }
+
+    # 5. Búsqueda de respaldo en el sistema (Microsoft Edge WebView2, System32)
+    $fallbackDirs = @(
+        "$env:SystemRoot\System32\Microsoft-Edge-WebView",
+        "${env:ProgramFiles(x86)}\Microsoft\EdgeCore",
+        "$env:SystemRoot\System32"
+    )
+
+    foreach ($dllName in $targetDlls) {
+        $destPath = Join-Path $mpDir $dllName
+        if (-not (Test-Path $destPath)) {
+            foreach ($dir in $fallbackDirs) {
+                if (Test-Path $dir) {
+                    $found = Get-ChildItem -Path $dir -Filter $dllName -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 1
+                    if ($found) {
+                        Copy-Item -Path $found.FullName -Destination $mpDir -Force -ErrorAction SilentlyContinue
+                        if (Test-Path $scriptsDir) {
+                            Copy-Item -Path $found.FullName -Destination $scriptsDir -Force -ErrorAction SilentlyContinue
+                        }
+                        break
+                    }
+                }
+            }
+        }
+    }
+
+    # 6. Replicar DLLs en venv\Scripts para garantizar ejecución de atajos
+    if (Test-Path $scriptsDir) {
+        $mpCopied = Get-ChildItem -Path $mpDir -Filter "*140*.dll" -ErrorAction SilentlyContinue
+        foreach ($dll in $mpCopied) {
+            $scriptDll = Join-Path $scriptsDir $dll.Name
+            if (-not (Test-Path $scriptDll)) {
+                Copy-Item -Path $dll.FullName -Destination $scriptsDir -Force -ErrorAction SilentlyContinue
+            }
         }
     }
 }
@@ -460,6 +516,7 @@ function Create-CliShortcuts {
     }
 
     $shortcuts = @(
+        @{ Name = "handtalk"; Target = "inicio\menu_universal.py"; Desc = "Menú Universal de HandTalk" },
         @{ Name = "handtalk-captura"; Target = "inicio\gui_captura.py"; Desc = "Captura de señas" },
         @{ Name = "handtalk-entrenar"; Target = "inicio\train_classifier.py"; Desc = "Entrenamiento de modelo" },
         @{ Name = "handtalk-traducir"; Target = "inicio\realtime_translator.py"; Desc = "Traducción en vivo" },
@@ -502,7 +559,7 @@ endlocal
 }
 
 function Remove-CliShortcuts {
-    $shortcuts = @("handtalk-captura.bat", "handtalk-entrenar.bat", "handtalk-traducir.bat", "handtalk-visor.bat")
+    $shortcuts = @("handtalk.bat", "handtalk-captura.bat", "handtalk-entrenar.bat", "handtalk-traducir.bat", "handtalk-visor.bat")
     foreach ($sc in $shortcuts) {
         $scPath = Join-Path $Script:BinDir $sc
         if (Test-Path $scPath) {
@@ -683,6 +740,9 @@ function Start-Installation {
     Write-Centered "[4/5] Instalando dependencias armonizadas desde inicio\requirements.txt..." "Cyan"
     Write-Centered "      (Garantizando NumPy < 2.0 y OpenCV 4.x para MediaPipe 0.10.14)" "DarkGray"
 
+    # Asegurar paquete msvc-runtime en Windows para proveer el C++ runtime a MediaPipe
+    & $venvPython -m pip install msvc-runtime *>>"$Script:LogFile"
+
     & $venvPython -m pip install -r $Script:RequirementsFile *>>"$Script:LogFile"
     if ($LASTEXITCODE -ne 0) {
         Write-Centered ""
@@ -737,6 +797,9 @@ function Start-Installation {
             } else {
                 $allOk = $false
                 Write-Centered "      $($Script:ChErr) $($m.name): Falló la carga" "Red"
+                if ($m.error) {
+                    Write-Centered "        Detalle: $($m.error)" "DarkGray"
+                }
                 if ($m.error -like "*Control de aplicaciones*" -or $m.error -like "*Application Control*") {
                     $hasSacBlock = $true
                 }
@@ -753,6 +816,7 @@ function Start-Installation {
         Write-BoxSep
         Write-BoxRow "Ya puede invocar HandTalk directamente desde CMD o PowerShell:" "center" "White"
         Write-BoxRow "" "center" "White"
+        Write-BoxRow "  * handtalk            $($Script:ChArr) Menú Universal (Suite Completa y Visor)" "left_tight" "Green"
         Write-BoxRow "  1. handtalk-captura   $($Script:ChArr) Captura y recolección de señas" "left_tight" "Cyan"
         Write-BoxRow "  2. handtalk-entrenar  $($Script:ChArr) Entrenamiento del clasificador" "left_tight" "Cyan"
         Write-BoxRow "  3. handtalk-traducir  $($Script:ChArr) Traducción en tiempo real (cámara)" "left_tight" "Cyan"
@@ -799,7 +863,7 @@ function Update-Dependencies {
     }
 
     # 2. Validación de Pre-requisito: Atajos CLI
-    $shortcuts = @("handtalk-captura.bat", "handtalk-entrenar.bat", "handtalk-traducir.bat", "handtalk-visor.bat")
+    $shortcuts = @("handtalk.bat", "handtalk-captura.bat", "handtalk-entrenar.bat", "handtalk-traducir.bat", "handtalk-visor.bat")
     $missingShortcuts = $shortcuts | Where-Object { -not (Test-Path (Join-Path $Script:BinDir $_)) }
     if ($missingShortcuts) {
         Write-BoxTop
@@ -834,6 +898,9 @@ function Update-Dependencies {
 
     Write-Centered "[2/3] Sincronizando dependencias desde inicio\requirements.txt..." "Cyan"
     Write-Centered "      (Solo se instalarán paquetes nuevos o pendientes)" "DarkGray"
+
+    # Asegurar paquete msvc-runtime en Windows para proveer el C++ runtime a MediaPipe
+    & $venvPython -m pip install msvc-runtime *>>"$Script:LogFile"
 
     & $venvPython -m pip install -r $Script:RequirementsFile *>>"$Script:LogFile"
     if ($LASTEXITCODE -ne 0) {

@@ -88,6 +88,13 @@ class SessionManager:
             Optional[str]: ID de sesión generado o None si se alcanzó el límite.
         """
         self.clean_expired_sessions()
+
+        # Si la IP ya posee una sesión previa, revocarla para permitir el nuevo inicio
+        # sin agotar innecesariamente el cupo de sesiones activas.
+        existing_for_ip = [sid for sid, data in self._active_sessions.items() if data.get("client_ip") == client_ip]
+        for sid in existing_for_ip:
+            del self._active_sessions[sid]
+
         if len(self._active_sessions) >= MAX_ACTIVE_SESSIONS:
             logger.warning(
                 "Intento de inicio de sesión rechazado desde %s: Límite de %d sesiones activas alcanzado.",

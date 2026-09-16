@@ -26,9 +26,11 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 
 > **Atajos de Terminal Generados:**
 > Tras la instalación, podrás usar los siguientes comandos desde cualquier terminal sin necesidad de activar manualmente el `venv`:
+> - `handtalk` ➔ **Menú Universal (Recomendado)**: Abre el centro de control unificado con Captura, Entrenamiento, Traductor y Visor Web integrados.
 > - `handtalk-captura` ➔ Abre la interfaz gráfica para recolectar señas.
 > - `handtalk-entrenar` ➔ Entrena el modelo clasificador.
-> - `handtalk-traducir` ➔ Inicia la traducción en tiempo real con cámara.
+> - `handtalk-traducir` ➔ Inicia la traducción en tiempo real con cámara (modo standalone).
+> - `handtalk-visor` ➔ Servidor web y visor remoto de HandTalk.
 >
 > ⚠️ **Nota importante para Windows:** Para utilizar los atajos después de la instalación, **no se puede hacer en la misma terminal donde se realizó la instalación**. Es necesario **abrir una nueva ventana de terminal de PowerShell (o CMD)** para que el sistema refresque las variables de entorno y reconozca la ruta del `PATH`.
 
@@ -70,9 +72,18 @@ pip install -r inicio/requirements.txt
 
 ## 🚀 Cómo usar el Sistema
 
-El flujo de trabajo debe seguir este orden estrictamente:
+### 🌟 Opción 1: Menú Universal (Todo en Uno — Recomendado)
+Inicia la aplicación unificada que integra todo el flujo (Captura, Entrenamiento, Traducción y Visor Web):
+```bash
+handtalk
+# O alternativamente:
+python inicio/menu_universal.py
+```
 
-### Paso 1: Capturar Señas
+### 🧩 Opción 2: Flujo Paso a Paso por Módulos
+Si prefieres utilizar cada herramienta por separado:
+
+#### Paso 1: Capturar Señas
 Ejecuta la interfaz de captura para grabar tus propias palabras.
 ```powershell
 python inicio/gui_captura.py
