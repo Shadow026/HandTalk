@@ -131,6 +131,11 @@ function Write-BoxRow {
     $innerWidth = $Width
     $clean = Strip-Ansi $Text
     $len = $clean.Length
+    if ($len -gt $innerWidth -and $innerWidth -gt 4) {
+        $Text = $Text.Substring(0, $innerWidth - 3) + "..."
+        $clean = Strip-Ansi $Text
+        $len = $clean.Length
+    }
     $padLeft = 0
     $padRight = 0
 
@@ -217,7 +222,11 @@ function Prompt-Centered {
 function Wait-Enter {
     Write-Centered ""
     Prompt-Centered "Presione [Enter] para continuar..." "DarkGray"
-    [void][System.Console]::ReadLine()
+    try {
+        [void][System.Console]::ReadLine()
+    } catch {
+        [void](Read-Host)
+    }
 }
 
 # --- Auditoría de Seguridad y Directivas de Control de Aplicaciones (SAC / WDAC) ---
@@ -344,6 +353,14 @@ function Sync-MediaPipeRuntime {
         if (-not (Test-Path $destPath)) {
             foreach ($dir in $fallbackDirs) {
                 if (Test-Path $dir) {
+                    $directDll = Join-Path $dir $dllName
+                    if (Test-Path $directDll) {
+                        Copy-Item -Path $directDll -Destination $mpDir -Force -ErrorAction SilentlyContinue
+                        if (Test-Path $scriptsDir) {
+                            Copy-Item -Path $directDll -Destination $scriptsDir -Force -ErrorAction SilentlyContinue
+                        }
+                        break
+                    }
                     $found = Get-ChildItem -Path $dir -Filter $dllName -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 1
                     if ($found) {
                         Copy-Item -Path $found.FullName -Destination $mpDir -Force -ErrorAction SilentlyContinue
@@ -446,6 +463,9 @@ function Find-CompatiblePython {
             $cmdObj = Get-Command $cmd -ErrorAction SilentlyContinue
             if ($cmdObj) {
                 $cmdExe = if ($cmdObj.Path) { $cmdObj.Path } elseif ($cmdObj.Source) { $cmdObj.Source } else { $cmd }
+                if ($cmdExe -like "*\WindowsApps\*" -and (Test-Path $cmdExe) -and ((Get-Item $cmdExe).Length -eq 0)) {
+                    continue
+                }
                 $code = "import sys; print(f'{sys.version_info.major} {sys.version_info.minor} {sys.executable}')"
                 $res = & $cmdExe -c $code 2>$null
                 if ($LASTEXITCODE -eq 0 -and $res) {
@@ -534,7 +554,7 @@ cd /d "$Script:ProjectRoot"
 "$VenvPython" "$scriptPath" %*
 endlocal
 "@
-        Set-Content -Path $batPath -Value $batContent -Encoding ASCII
+        Set-Content -Path $batPath -Value $batContent -Encoding Default
     }
 
     # Agregar la carpeta de binarios al PATH de Usuario si no existe
@@ -742,6 +762,7 @@ function Start-Installation {
 
     # Asegurar paquete msvc-runtime en Windows para proveer el C++ runtime a MediaPipe
     & $venvPython -m pip install msvc-runtime *>>"$Script:LogFile"
+    & $venvPython -m pip install "numpy>=1.24.0,<2.0.0" *>>"$Script:LogFile"
 
     & $venvPython -m pip install -r $Script:RequirementsFile *>>"$Script:LogFile"
     if ($LASTEXITCODE -ne 0) {
@@ -778,7 +799,10 @@ function Start-Installation {
         Write-Centered "      $($Script:ChOk) Driver de Cámara Virtual detectado: $($vcam.Name)" "Green"
     } else {
         Write-Centered "      $($Script:ChWrn) Driver DirectShow de OBS Virtual Cam no detectado." "Yellow"
-        Write-Centered "      Aviso: La cámara virtual en Meet/Zoom requiere instalar OBS Studio." "DarkGray"
+        Write-Centered "      Aviso: La cámara virtual en Meet/Zoom requiere el driver de OBS Studio." "DarkGray"
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            Write-Centered "      Sugerencia de instalación automatizada: winget install --id OBSProject.OBSStudio --silent" "Cyan"
+        }
     }
 
     Add-HandTalkFirewallRule
@@ -901,6 +925,7 @@ function Update-Dependencies {
 
     # Asegurar paquete msvc-runtime en Windows para proveer el C++ runtime a MediaPipe
     & $venvPython -m pip install msvc-runtime *>>"$Script:LogFile"
+    & $venvPython -m pip install "numpy>=1.24.0,<2.0.0" *>>"$Script:LogFile"
 
     & $venvPython -m pip install -r $Script:RequirementsFile *>>"$Script:LogFile"
     if ($LASTEXITCODE -ne 0) {
@@ -1004,8 +1029,15 @@ function Main {
         Show-HeaderBanner
         Show-MainMenu
         Prompt-Centered "Seleccione una opción [1-4]: " "Cyan"
-        $choice = [System.Console]::ReadLine()
-        if ($null -eq $choice) { $choice = "" }
+        try {
+            $choice = [System.Console]::ReadLine()
+        } catch {
+            $choice = Read-Host
+        }
+        if ($null -eq $choice) {
+            Write-Centered ""
+            return
+        }
 
         switch ($choice.Trim()) {
             "1" {

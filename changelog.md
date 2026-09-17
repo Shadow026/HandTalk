@@ -4,6 +4,53 @@ Registro cronológico y técnico de cambios, mejoras y correcciones aplicadas a 
 
 ---
 
+## [2026-09-17] - Cámara Virtual Interna, Estandarización 16:9 HD y Zona Segura para Videollamadas
+
+### 1. Módulo de Cámara Virtual Desacoplada (`inicio/virtual_cam.py`)
+- **Arquitectura Asíncrona No Bloqueante**: Se implementó la clase `VirtualCamManager` con un hilo en segundo plano (`HandTalk-VirtualCamWorker`) y buffer atómico protegido por cerrojo (`threading.Lock`), desacoplando el despacho de video de la inferencia de MediaPipe para evitar pérdidas de FPS.
+- **Estandarización a 16:9 HD (1280×720 a 30 FPS)**: Se configuró la resolución nativa de transmisión en formato panorámico estándar, alineada con la captura de `camera_utils.py` y las plataformas de videoconferencia (Microsoft Teams, Google Meet, Zoom).
+- **Recorte Central Inteligente (`_fit_frame_to_target`)**: Escalado adaptativo que preserva la relación de aspecto 16:9 sin deformar la anatomía de las manos o el rostro cuando la cámara física entrega formatos distintos (ej. 4:3 640×480).
+- **Zona Segura para Videollamadas (*Safe Area*)**:
+  - Se implementó un margen de seguridad inferior de ~95 píxeles (`safe_margin_bottom = max(85, int(h * 0.13))`), resolviendo el problema de recorte y ocultamiento provocado por la barra de participantes y controles de Microsoft Teams y Google Meet.
+  - Se añadió la opción de ubicación `banner_position='top'` para situar los subtítulos en la parte superior flotante.
+- **Rediseño del Banner de Confirmación**:
+  - Incorporación de un badge de estado superior en verde esmeralda brillante (`✓ CONFIRMADO (XX%)`) con porcentaje de certeza del modelo.
+  - Palabra confirmada en tipografía de alto contraste (blanco con sombra negra) sobre panel translúcido oscuro con borde acento morado/cian.
+  - Temporizador de persistencia de 3.8 segundos con atenuación progresiva (*fade-out*) en los últimos 0.7 segundos.
+- **Compensación de Espejo (*Mirror Flip*)**: Soporte configurable para invertir el cuadro antes del subtitulado, evitando que el usuario vea su propio texto invertido en aplicaciones con vista previa reflejada.
+- **Tolerancia a Fallos (*Graceful Degradation*)**: Manejo de excepciones ante ausencia de drivers o librerías externas, permitiendo que HandTalk continúe funcionando normalmente en modo local y visor web sin colapsar.
+
+---
+
+### 2. Contrato de Eventos Desacoplado (`inicio/realtime_translator.py`)
+- **Soporte Formal de Callbacks**: Se incorporaron los métodos `register_callback(callback)` y `unregister_callback(callback)` según la especificación de `EVENTOS.md`.
+- **Emisión en Tiempo Real**: Notificación automática con firma `(word, confidence, timestamp)` a todos los módulos suscriptores (Cámara Virtual, WebSockets, TTS) al confirmar una seña.
+
+---
+
+### 3. Integración en el Menú Universal (`inicio/menu_universal.py`)
+- **Controles de Cámara Virtual en Pestaña 4 ("Traducir y Visor")**:
+  - Switch de activación/desactivación de la Cámara Virtual con gestión de ciclo de vida completo (`start`, `stop`, `on_translation_confirmed`).
+  - Checkbox **"Espejo Zoom"**: Compensación de reflejo horizontal.
+  - Checkbox **"Video Limpio (Sin Puntos)"**: Permite ocultar el esqueleto óseo de MediaPipe en reuniones formales y transmitir únicamente la imagen con subtítulos.
+  - Checkbox **"Subtítulos Arriba"**: Alterna la posición del banner a la zona superior.
+- **Liberación de Recursos**: Detención segura del dispositivo virtual al pausar la traducción o al cerrar la aplicación (`on_close_window`).
+
+---
+
+### 4. Automatización de Drivers en Autoinstaladores
+- **GNU/Linux (`install.sh`)**:
+  - Detección e instalación automática de cabeceras del kernel (`linux-headers-$(uname -r)` / `kernel-devel`) y paquetes `v4l2loopback-dkms` y `v4l2loopback-utils` para Debian/Ubuntu, Arch y Fedora.
+  - Configuración persistente del módulo en `/etc/modprobe.d/v4l2loopback.conf` con `devices=1 video_nr=10 card_label="HandTalk Virtual Cam" exclusive_caps=1` (parámetro indispensable para reconocimiento en navegadores y Zoom).
+  - Configuración de carga al inicio en `/etc/modules-load.d/v4l2loopback.conf`.
+  - Inclusión automática del usuario en el grupo de sistema `video`.
+  - Carga en caliente del módulo para uso inmediato sin reiniciar y validación de `/dev/video10`.
+- **Windows (`install.ps1`)**:
+  - Perfeccionamiento de la función `Test-VirtualCamDriver` para auditar el Registro DirectShow y DLLs de OBS Virtual Camera y Unity Capture.
+  - Recomendación y comando asistido para aprovisionamiento desatendido vía `winget install --id OBSProject.OBSStudio --silent`.
+
+---
+
 ## [2026-09-15] - Unificación en Menú Universal, Integración de Instaladores y Estabilización
 
 ### 1. Nuevo Menú Universal (`inicio/menu_universal.py`)

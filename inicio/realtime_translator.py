@@ -64,6 +64,17 @@ class CustomSignTranslator:
 
         self.smoother = PredictionSmoother(confidence_threshold=confidence_threshold)
         self.history = []
+        self.callbacks = []
+
+    def register_callback(self, callback):
+        """Registra una función suscriptora al evento on_translation_confirmed (EVENTOS.md)."""
+        if callback not in self.callbacks:
+            self.callbacks.append(callback)
+
+    def unregister_callback(self, callback):
+        """Desregistra una función suscriptora."""
+        if callback in self.callbacks:
+            self.callbacks.remove(callback)
 
     def predict(self, frame):
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -97,6 +108,12 @@ class CustomSignTranslator:
         confirmed, avg_conf = self.smoother.update(label, confidence)
         if confirmed:
             self.history.append(confirmed)
+            timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            for cb in self.callbacks:
+                try:
+                    cb(confirmed, confidence, timestamp)
+                except Exception:
+                    pass
 
         return label, confidence, results, confirmed
 

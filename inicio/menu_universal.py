@@ -95,6 +95,9 @@ class UniversalMenuApp:
         self.history_words = []
         self.tts_enabled = tk.BooleanVar(value=False)
         self.vcam_enabled = tk.BooleanVar(value=False)
+        self.vcam_mirror = tk.BooleanVar(value=False)
+        self.vcam_clean = tk.BooleanVar(value=False)
+        self.vcam_pos_top = tk.BooleanVar(value=False)
         self.vcam_manager = None
 
         # Instancia de gui_captura (Pestaña 2)
@@ -782,10 +785,38 @@ class UniversalMenuApp:
             top_bar,
             text="Cámara Virtual",
             variable=self.vcam_enabled,
-            font=("Segoe UI", 9),
+            font=("Segoe UI", 9, "bold"),
+            bg=self.c_card_bg,
+            fg=self.c_accent
+        )
+        self.chk_vcam.pack(side=tk.LEFT, padx=(10, 4))
+
+        self.chk_vcam_mirror = tk.Checkbutton(
+            top_bar,
+            text="Espejo Zoom",
+            variable=self.vcam_mirror,
+            font=("Segoe UI", 8),
             bg=self.c_card_bg
         )
-        self.chk_vcam.pack(side=tk.LEFT, padx=10)
+        self.chk_vcam_mirror.pack(side=tk.LEFT, padx=(0, 4))
+
+        self.chk_vcam_clean = tk.Checkbutton(
+            top_bar,
+            text="Video Limpio (Sin Puntos)",
+            variable=self.vcam_clean,
+            font=("Segoe UI", 8),
+            bg=self.c_card_bg
+        )
+        self.chk_vcam_clean.pack(side=tk.LEFT, padx=(0, 4))
+
+        self.chk_vcam_pos = tk.Checkbutton(
+            top_bar,
+            text="Subtítulos Arriba",
+            variable=self.vcam_pos_top,
+            font=("Segoe UI", 8),
+            bg=self.c_card_bg
+        )
+        self.chk_vcam_pos.pack(side=tk.LEFT, padx=(0, 10))
 
         # Indicador de Estado del Servidor
         self.lbl_server_status = tk.Label(
@@ -883,8 +914,19 @@ class UniversalMenuApp:
         if self.vcam_enabled.get():
             try:
                 from virtual_cam import VirtualCamManager
-                self.vcam_manager = VirtualCamManager(width=640, height=480, fps=30)
-            except Exception:
+                pos = "top" if self.vcam_pos_top.get() else "bottom_safe"
+                self.vcam_manager = VirtualCamManager(
+                    width=1280,
+                    height=720,
+                    fps=30,
+                    mirror_flip=self.vcam_mirror.get(),
+                    banner_position=pos,
+                    auto_start=True,
+                )
+                if not self.vcam_manager.is_active:
+                    logger.info("VirtualCamManager inició con degradación suave (driver no disponible).")
+            except Exception as exc:
+                logger.warning("No se pudo instanciar VirtualCamManager: %s", exc)
                 self.vcam_manager = None
 
         self.is_translating = True
@@ -908,6 +950,13 @@ class UniversalMenuApp:
             except Exception:
                 pass
             self.translator_cap = None
+
+        if self.vcam_manager is not None:
+            try:
+                self.vcam_manager.stop()
+            except Exception:
+                pass
+            self.vcam_manager = None
 
         self.btn_toggle_translate.config(text="Iniciar Traducción en Vivo", bg=self.c_success)
 
@@ -936,10 +985,11 @@ class UniversalMenuApp:
             if confirmed:
                 self.on_word_confirmed_event(confirmed, confidence)
 
-            # 3. Enviar a cámara virtual si está activa
+            # 3. Enviar a cámara virtual si está activa (respetando opción de video limpio)
             if self.vcam_manager and self.vcam_manager.is_active:
                 try:
-                    self.vcam_manager.send_frame(display_frame)
+                    target_frame = frame if self.vcam_clean.get() else display_frame
+                    self.vcam_manager.send_frame(target_frame)
                 except Exception:
                     pass
 
@@ -949,13 +999,20 @@ class UniversalMenuApp:
             time.sleep(0.015)
 
     def on_word_confirmed_event(self, word: str, confidence: float):
-        # 1. Emitir a clientes WebSocket del Visor Web
+        # 1. Notificar a la Cámara Virtual (Contrato EVENTOS.md)
+        if self.vcam_manager and self.vcam_manager.is_active:
+            try:
+                self.vcam_manager.on_translation_confirmed(word, confidence)
+            except Exception:
+                pass
+
+        # 2. Emitir a clientes WebSocket del Visor Web
         web_server.broadcast_translation_sync(word, confidence)
 
-        # 2. Actualizar interfaz local
+        # 3. Actualizar interfaz local
         self.root.after(0, lambda: self._update_history_ui(word))
 
-        # 3. Texto a Voz si está activado
+        # 4. Texto a Voz si está activado
         if self.tts_enabled.get():
             threading.Thread(target=self._speak_word, args=(word,), daemon=True).start()
 

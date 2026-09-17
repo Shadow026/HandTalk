@@ -599,34 +599,39 @@ setup_virtualcam_system() {
     fi
 
     if [ "$need_install" -eq 1 ]; then
-        print_centered "      ${C_YELLOW}⚠ Módulo v4l2loopback no detectado; instalando paquetes del sistema...${C_RESET}"
+        print_centered "      ${C_YELLOW}⚠ Módulo v4l2loopback no detectado; instalando paquetes del sistema y cabeceras de kernel...${C_RESET}"
         if [ "$DETECTED_DISTRO_FAMILY" = "debian" ]; then
             if command -v apt-get >/dev/null 2>&1; then
-                print_centered "      ${C_CYAN}Instalando v4l2loopback-dkms y v4l2loopback-utils via apt...${C_RESET}"
+                print_centered "      ${C_CYAN}Instalando v4l2loopback-dkms, v4l2loopback-utils y cabeceras de kernel via apt...${C_RESET}"
+                local kpkg="linux-headers-$(uname -r)"
                 if [ "$IS_ROOT" -eq 1 ]; then
                     apt-get update -y >>"${LOG_FILE}" 2>&1 || true
-                    apt-get install -y v4l2loopback-dkms v4l2loopback-utils >>"${LOG_FILE}" 2>&1 || true
+                    apt-get install -y v4l2loopback-dkms v4l2loopback-utils "${kpkg}" >>"${LOG_FILE}" 2>&1 || \
+                        apt-get install -y v4l2loopback-dkms v4l2loopback-utils >>"${LOG_FILE}" 2>&1 || true
                 elif command -v sudo >/dev/null 2>&1; then
                     sudo apt-get update -y >>"${LOG_FILE}" 2>&1 || true
-                    sudo apt-get install -y v4l2loopback-dkms v4l2loopback-utils >>"${LOG_FILE}" 2>&1 || true
+                    sudo apt-get install -y v4l2loopback-dkms v4l2loopback-utils "${kpkg}" >>"${LOG_FILE}" 2>&1 || \
+                        sudo apt-get install -y v4l2loopback-dkms v4l2loopback-utils >>"${LOG_FILE}" 2>&1 || true
                 fi
             fi
         elif [ "$DETECTED_DISTRO_FAMILY" = "arch" ]; then
             if command -v pacman >/dev/null 2>&1; then
-                print_centered "      ${C_CYAN}Instalando v4l2loopback-dkms y v4l2loopback-utils via pacman...${C_RESET}"
+                print_centered "      ${C_CYAN}Instalando v4l2loopback-dkms, v4l2loopback-utils y linux-headers via pacman...${C_RESET}"
                 if [ "$IS_ROOT" -eq 1 ]; then
-                    pacman -S --noconfirm v4l2loopback-dkms v4l2loopback-utils >>"${LOG_FILE}" 2>&1 || true
+                    pacman -S --noconfirm v4l2loopback-dkms v4l2loopback-utils linux-headers >>"${LOG_FILE}" 2>&1 || \
+                        pacman -S --noconfirm v4l2loopback-dkms v4l2loopback-utils >>"${LOG_FILE}" 2>&1 || true
                 elif command -v sudo >/dev/null 2>&1; then
-                    sudo pacman -S --noconfirm v4l2loopback-dkms v4l2loopback-utils >>"${LOG_FILE}" 2>&1 || true
+                    sudo pacman -S --noconfirm v4l2loopback-dkms v4l2loopback-utils linux-headers >>"${LOG_FILE}" 2>&1 || \
+                        sudo pacman -S --noconfirm v4l2loopback-dkms v4l2loopback-utils >>"${LOG_FILE}" 2>&1 || true
                 fi
             fi
         elif [ "$DETECTED_DISTRO_FAMILY" = "fedora" ]; then
             if command -v dnf >/dev/null 2>&1; then
-                print_centered "      ${C_CYAN}Instalando v4l2loopback y v4l2loopback-utils via dnf...${C_RESET}"
+                print_centered "      ${C_CYAN}Instalando v4l2loopback, v4l2loopback-utils y kernel-devel via dnf...${C_RESET}"
                 if [ "$IS_ROOT" -eq 1 ]; then
-                    dnf install -y v4l2loopback v4l2loopback-utils >>"${LOG_FILE}" 2>&1 || true
+                    dnf install -y v4l2loopback v4l2loopback-utils kernel-devel kernel-headers >>"${LOG_FILE}" 2>&1 || true
                 elif command -v sudo >/dev/null 2>&1; then
-                    sudo dnf install -y v4l2loopback v4l2loopback-utils >>"${LOG_FILE}" 2>&1 || true
+                    sudo dnf install -y v4l2loopback v4l2loopback-utils kernel-devel kernel-headers >>"${LOG_FILE}" 2>&1 || true
                 fi
             fi
         fi
@@ -662,10 +667,13 @@ setup_virtualcam_system() {
         fi
     fi
 
-    if modinfo v4l2loopback >/dev/null 2>&1; then
-        print_centered "      ${C_GREEN}✓${C_WHITE} Configuración de v4l2loopback lista (/dev/video10).${C_RESET}"
+    if [ -e "/dev/video10" ]; then
+        print_centered "      ${C_GREEN}✓${C_WHITE} Dispositivo de Cámara Virtual activo en /dev/video10.${C_RESET}"
+    elif modinfo v4l2loopback >/dev/null 2>&1; then
+        print_centered "      ${C_GREEN}✓${C_WHITE} Configuración de v4l2loopback registrada.${C_RESET}"
+        print_centered "      ${C_YELLOW}⚠ Si /dev/video10 no aparece de inmediato, reinicie para aplicar DKMS.${C_RESET}"
     else
-        print_centered "      ${C_YELLOW}⚠ Driver v4l2loopback registrado. Si requiere reiniciar para compilar DKMS, se aplicará al reiniciar.${C_RESET}"
+        print_centered "      ${C_YELLOW}⚠ No se pudo compilar o cargar v4l2loopback. HandTalk operará con degradación suave.${C_RESET}"
     fi
 }
 
