@@ -14,6 +14,12 @@ Características de Seguridad:
 - Cabeceras de seguridad HTTP completas (CSP, X-Frame-Options, X-Content-Type-Options).
 - Sanitización estricta de palabras traducidas (neutralización de XSS).
 - Límite de 2 sesiones concurrentes activas en red local.
+
+ACTUALIZADO: _vision_pipeline_worker ahora desempaqueta correctamente el
+nuevo retorno de CustomSignTranslator.predict() (6 valores en vez de 4,
+por la integración del modelo dinámico), y además reenvía por WebSocket
+tanto las señas estáticas CONFIRMADAS como las dinámicas CONFIRMADAS
+(antes solo escuchaba las estáticas).
 """
 
 import asyncio
@@ -91,7 +97,7 @@ def _vision_pipeline_worker():
     Hilo de inferencia y visión en tiempo real:
     - Abre la cámara física de la PC.
     - Procesa cada frame con MediaPipe y el modelo de señas preentrenado (Random Forest).
-    - Cuando se confirma una seña real del dataset (ej. 'hola', 'dedo'), la emite
+    - Cuando se confirma una seña real del dataset (estática O dinámica), la emite
       inmediatamente por WebSocket a los celulares/visores conectados.
     - Almacena el frame con overlay en _latest_mjpeg_frame para el stream /stream.
     """
@@ -131,19 +137,32 @@ def _vision_pipeline_worker():
 
             if _translator is not None:
                 try:
-                    label, confidence, results, confirmed = _translator.predict(frame)
-                    frame = _translator.draw_overlay(frame, label, confidence, results, confirmed)
+                    # NUEVO: predict() ahora devuelve 6 valores (antes 4),
+                    # por la integración del modelo dinámico + detector
+                    # de movimiento en realtime_translator.py.
+                    label, confidence, results, confirmed, resultado_dinamico, en_movimiento = _translator.predict(frame)
+                    frame = _translator.draw_overlay(
+                        frame, label, confidence, results, confirmed, resultado_dinamico, en_movimiento
+                    )
 
-                    if confirmed:
-                        logger.info("✓ Seña real confirmada por IA: '%s' (confianza: %.2f)", confirmed, confidence)
+                    confirmado_dinamico, confianza_dinamico, _, _ = resultado_dinamico
+
+                    # Se unifica: cualquiera de las dos (estática o dinámica)
+                    # que haya confirmado en este frame se reenvía igual.
+                    palabra_confirmada = confirmed or confirmado_dinamico
+                    confianza_final = confidence if confirmed else confianza_dinamico
+
+                    if palabra_confirmada:
+                        logger.info("✓ Seña real confirmada por IA: '%s' (confianza: %.2f)",
+                                    palabra_confirmada, confianza_final)
                         if _main_event_loop and _main_event_loop.is_running():
                             asyncio.run_coroutine_threadsafe(
-                                notificar_traduccion(confirmed, confidence),
+                                notificar_traduccion(palabra_confirmada, confianza_final),
                                 _main_event_loop
                             )
 
                         if _virtual_cam and _virtual_cam.is_active:
-                            _virtual_cam.on_translation_confirmed(confirmed, confidence)
+                            _virtual_cam.on_translation_confirmed(palabra_confirmada, confianza_final)
                 except Exception as e:
                     logger.debug("Error en inferencia de frame: %s", e)
 
@@ -356,10 +375,15 @@ def api_info(request: Request):
     if _translator and hasattr(_translator, "meta"):
         words = _translator.meta.get("words", [])
 
+    palabras_dinamicas = []
+    if _translator and getattr(_translator, "meta_dinamico", None):
+        palabras_dinamicas = _translator.meta_dinamico.get("words", [])
+
     return {
         "status": "online",
         "model_loaded": _translator is not None,
         "pretrained_words": words,
+        "pretrained_words_dinamicas": palabras_dinamicas,
         "ip": request.client.host if request.client else "unknown",
     }
 
@@ -463,6 +487,11 @@ async def startup_event():
             "✓ Modelo IA de señas preentrenadas cargado con éxito. Señas reconocibles: %s",
             _translator.meta.get("words", []),
         )
+        if getattr(_translator, "meta_dinamico", None):
+            logger.info(
+                "✓ Modelo dinámico también cargado. Señas con movimiento reconocibles: %s",
+                _translator.meta_dinamico.get("words", []),
+            )
     except Exception as e:
         logger.warning("No se pudo cargar el clasificador de señas (%s). Verifique el directorio ./models.", e)
         _translator = None

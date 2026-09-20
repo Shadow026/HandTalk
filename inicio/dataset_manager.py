@@ -17,6 +17,9 @@ NUEVO:
     ImageDataGenerator que usaban train_model.py / train_model_letters.py,
     pero operando sobre landmarks en vez de pixeles (mucho mas barato y
     no depende de fondo/iluminacion de la imagen original).
+  - get_available_types(): detecta si el dataset tiene muestras estaticas,
+    dinamicas, o ambas -- para que train_classifier.py sepa que modelos
+    entrenar sin que el usuario tenga que indicarlo a mano.
 """
 
 import os
@@ -105,6 +108,28 @@ def load_dataset(dataset_dir=DEFAULT_DATASET_DIR, sample_type=None):
         y.append(sample["label"])
 
     return X, y
+
+
+def get_available_types(dataset_dir=DEFAULT_DATASET_DIR):
+    """
+    Devuelve el conjunto de tipos de muestra presentes en el dataset
+    (p.ej. {"static"}, {"dynamic"}, o {"static", "dynamic"}).
+
+    Esto permite que train_classifier.py decida automaticamente que
+    modelo(s) entrenar, sin que el usuario tenga que indicarlo a mano
+    ni preocuparse por mezclar tipos sin querer.
+    """
+    tipos = set()
+    if not os.path.exists(dataset_dir):
+        return tipos
+    for path in glob.glob(os.path.join(dataset_dir, "*.json")):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                sample = json.load(f)
+            tipos.add(sample.get("type", "static"))
+        except Exception:
+            continue
+    return tipos
 
 
 def augment_static_sample(feature_vector, n_augmentations=20,

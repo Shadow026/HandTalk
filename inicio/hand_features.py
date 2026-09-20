@@ -175,3 +175,22 @@ def feature_vector_length(rotate=True, include_angles=True, include_distances=Tr
     if include_distances:
         n += 10
     return n * 2 if two_hands else n
+
+
+def summarize_sequence(sequence):
+    """
+    Implementa Pooling Temporal para señas dinámicas.
+    Toma una secuencia de vectores y la resume en un único vector descriptivo.
+
+    sequence: array-like (n_frames, n_features)
+    return: array (2 * n_features,) -> [media, desviacion_estandar]
+    """
+    seq = np.asarray(sequence, dtype=np.float32)
+    if seq.ndim == 1:
+        # Si es una seña estática, la tratamos como secuencia de un solo frame
+        seq = seq[np.newaxis, :]
+
+    mean = np.mean(seq, axis=0)
+    std = np.std(seq, axis=0)
+
+    return np.concatenate([mean, std]).astype(np.float32)
