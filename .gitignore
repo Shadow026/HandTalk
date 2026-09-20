@@ -34,3 +34,13 @@ camera_config.json
 
 # Imagen QR generada
 qr_visor.png
+
+# Backups de dataset y modelo (locales, no van al repo)
+custom_dataset_BACKUP/
+models_BACKUP/
+models/backup_*/
+
+# Paquetes HandTalk exportados (temporales)
+*.htk
+handtalk_pack_*.zip
+prueba_pack.zip
