@@ -91,15 +91,16 @@ _main_event_loop: Optional[asyncio.AbstractEventLoop] = None
 _translator = None
 _virtual_cam = None
 
-
 def _vision_pipeline_worker():
     """
     Hilo de inferencia y visión en tiempo real:
     - Abre la cámara física de la PC.
-    - Procesa cada frame con MediaPipe y el modelo de señas preentrenado (Random Forest).
-    - Cuando se confirma una seña real del dataset (estática O dinámica), la emite
-      inmediatamente por WebSocket a los celulares/visores conectados.
-    - Almacena el frame con overlay en _latest_mjpeg_frame para el stream /stream.
+    - Procesa cada frame con MediaPipe y el modelo de señas preentrenado.
+    - Cuando se confirma una seña real del dataset (estática O dinámica,
+      con el mismo criterio que el traductor de escritorio: umbral de
+      confianza + margen top1/top2 al cerrar el gesto), la emite
+      inmediatamente por WebSocket a los visores conectados.
+    - Almacena el frame con overlay en _latest_mjpeg_frame para /stream.
     """
     global _latest_mjpeg_frame, _translator, _virtual_cam
 
@@ -137,30 +138,35 @@ def _vision_pipeline_worker():
 
             if _translator is not None:
                 try:
-                    # NUEVO: predict() ahora devuelve 6 valores (antes 4),
-                    # por la integración del modelo dinámico + detector
-                    # de movimiento en realtime_translator.py.
+                    # predict() devuelve 6 valores (misma firma que la
+                    # version de escritorio con segmentacion por evento).
                     label, confidence, results, confirmed, resultado_dinamico, en_movimiento = _translator.predict(frame)
                     frame = _translator.draw_overlay(
                         frame, label, confidence, results, confirmed, resultado_dinamico, en_movimiento
                     )
 
-                    confirmado_dinamico, confianza_dinamico, _, _ = resultado_dinamico
+                    # resultado_dinamico = (confirmado_din, conf_confirmado,
+                    #                       label_vivo, conf_vivo)
+                    confirmado_dinamico, confianza_dinamico, label_vivo, conf_vivo = resultado_dinamico
 
-                    # Se unifica: cualquiera de las dos (estática o dinámica)
-                    # que haya confirmado en este frame se reenvía igual.
+                    # Unificar: cualquiera de las dos que haya confirmado
+                    # REALMENTE (no preview) se reenvía por WebSocket.
                     palabra_confirmada = confirmed or confirmado_dinamico
-                    confianza_final = confidence if confirmed else confianza_dinamico
+                    confianza_final = (
+                        confidence if confirmed
+                        else (confianza_dinamico if confianza_dinamico else 0.0)
+                    )
 
                     if palabra_confirmada:
-                        logger.info("✓ Seña real confirmada por IA: '%s' (confianza: %.2f)",
-                                    palabra_confirmada, confianza_final)
+                        logger.info(
+                            "✓ Seña real confirmada por IA: '%s' (confianza: %.2f)",
+                            palabra_confirmada, confianza_final,
+                        )
                         if _main_event_loop and _main_event_loop.is_running():
                             asyncio.run_coroutine_threadsafe(
                                 notificar_traduccion(palabra_confirmada, confianza_final),
                                 _main_event_loop
                             )
-
                         if _virtual_cam and _virtual_cam.is_active:
                             _virtual_cam.on_translation_confirmed(palabra_confirmada, confianza_final)
                 except Exception as e:
@@ -482,7 +488,14 @@ async def startup_event():
     models_dir = os.path.join(PROJECT_ROOT, "models")
     try:
         from realtime_translator import CustomSignTranslator
-        _translator = CustomSignTranslator(models_dir=models_dir)
+        _translator = CustomSignTranslator(
+                                        models_dir=models_dir,
+                                        modo="ambos",
+                                        input_size=480,           # ajusta igual que en escritorio
+                                        margen_confianza=0.12,
+                                        frames_quieto_para_finalizar=4,
+                                        umbral_movimiento=0.015,
+                                    )
         logger.info(
             "✓ Modelo IA de señas preentrenadas cargado con éxito. Señas reconocibles: %s",
             _translator.meta.get("words", []),
