@@ -3,23 +3,20 @@
 """
 realtime_translator.py
 
-REEMPLAZA a translator_realtime.py, translator_unified.py y
-translator_headless.py, unificando su logica en un solo traductor que
-funciona con CUALQUIER conjunto de palabras que el usuario haya definido
-(ya no hay "digitos" ni "letras" hardcodeados).
+TRADUCTOR UNIFICADO CON SOPORTE PARA SEÑAS ESTÁTICAS Y DINÁMICAS.
 
-RESCATADO de los traductores originales:
-  - Apertura de camara con fallback (ahora en camera_utils.open_camera)
-  - Deteccion de manos con MediaPipe y umbrales altos de confianza
-    (0.85 deteccion / 0.75 tracking) para evitar falsos positivos
-  - Dibujo de landmarks y bounding box
-  - Sistema de confirmacion por frames consecutivos (ahora en smoothing.py)
+Lógica de inferencia:
+1. Detecta si hay movimiento significativo en la muñeca.
+2. Si hay movimiento -> Inicia grabación de secuencia -> Usa modelo dinámico.
+3. Si no hay movimiento -> Usa modelo estático.
+4. Confirma la seña solo cuando el movimiento cesa (en modo dinámico).
 """
 
 import argparse
 import json
 import os
 import time
+import numpy as np
 
 import cv2
 import mediapipe as mp
@@ -27,6 +24,7 @@ import joblib
 
 import camera_utils
 import hand_features
+import temporal_pooling
 from smoothing import PredictionSmoother
 
 MODELS_DIR = "./models"
@@ -35,20 +33,34 @@ NOMBRE_VENTANA = "Traductor de Senas Personalizado"
 class CustomSignTranslator:
     def __init__(self, models_dir=MODELS_DIR, max_hands=1, rotate_invariant=True,
                  confidence_threshold=0.75):
-        model_path = os.path.join(models_dir, "custom_sign_model.pkl")
-        encoder_path = os.path.join(models_dir, "custom_sign_labels.pkl")
-        meta_path = os.path.join(models_dir, "custom_sign_meta.json")
+        # --- Modelos Estáticos ---
+        self.model_s_path = os.path.join(models_dir, "custom_sign_model.pkl")
+        self.encoder_s_path = os.path.join(models_dir, "custom_sign_labels.pkl")
+        self.meta_s_path = os.path.join(models_dir, "custom_sign_meta.json")
 
-        for p in (model_path, encoder_path, meta_path):
+        # --- Modelos Dinámicos ---
+        self.model_d_path = os.path.join(models_dir, "custom_sign_model_dinamico.pkl")
+        self.encoder_d_path = os.path.join(models_dir, "custom_sign_labels_dinamico.pkl")
+        self.meta_d_path = os.path.join(models_dir, "custom_sign_meta_dinamico.json")
+
+        # Cargar modelos estáticos (Obligatorios)
+        for p in (self.model_s_path, self.encoder_s_path, self.meta_s_path):
             if not os.path.exists(p):
-                raise FileNotFoundError(
-                    f"No se encontro {p}. Primero entrena un modelo con train_classifier.py"
-                )
+                raise FileNotFoundError(f"No se encontro {p}. Entrena primero el modelo.")
 
-        self.model = joblib.load(model_path)
-        self.encoder = joblib.load(encoder_path)
-        with open(meta_path, "r", encoding="utf-8") as f:
-            self.meta = json.load(f)
+        self.model_s = joblib.load(self.model_s_path)
+        self.encoder_s = joblib.load(self.encoder_s_path)
+        with open(self.meta_s_path, "r", encoding="utf-8") as f:
+            self.meta_s = json.load(f)
+
+        # Cargar modelos dinámicos (Opcionales)
+        self.model_d = None
+        self.encoder_d = None
+        if os.path.exists(self.model_d_path) and os.path.exists(self.encoder_d_path):
+            self.model_d = joblib.load(self.model_d_path)
+            self.encoder_d = joblib.load(self.encoder_d_path)
+            with open(self.meta_d_path, "r", encoding="utf-8") as f:
+                self.meta_d = json.load(f)
 
         self.max_hands = max_hands
         self.rotate_invariant = rotate_invariant
@@ -64,6 +76,40 @@ class CustomSignTranslator:
 
         self.smoother = PredictionSmoother(confidence_threshold=confidence_threshold)
         self.history = []
+        self._callbacks = []
+
+        # --- Estado para Señas Dinámicas ---
+        self.dyn_buffer = []            # Secuencia de vectores
+        self.is_recording_dyn = False   # ¿Estamos en medio de un gesto?
+        self.still_frames_count = 0      # Frames que la mano ha estado quieta
+        self.FRAMES_QUIETO_PARA_FINALIZAR = 5
+        self.MOV_THRESHOLD = 0.05      # Umbral de movimiento de muñeca (normalizado)
+        self.last_wrist_pos = None
+
+    def register_callback(self, callback):
+        self._callbacks.append(callback)
+
+    def _emit_confirmed(self, word, confidence):
+        timestamp = time.time()
+        for callback in self._callbacks:
+            try:
+                callback(word, confidence, timestamp)
+            except Exception as e:
+                print(f"[WARN] Error en callback: {e}")
+
+    def _medir_movimiento(self, landmarks):
+        """Calcula el desplazamiento de la muñeca para detectar inicio de gesto."""
+        # Muñeca es landmark 0
+        wrist = landmarks.landmark[0]
+        curr_pos = np.array([wrist.x, wrist.y])
+
+        if self.last_wrist_pos is None:
+            self.last_wrist_pos = curr_pos
+            return 0.0
+
+        dist = np.linalg.norm(curr_pos - self.last_wrist_pos)
+        self.last_wrist_pos = curr_pos
+        return dist
 
     def predict(self, frame):
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -71,34 +117,78 @@ class CustomSignTranslator:
 
         if not results.multi_hand_landmarks:
             self.smoother.reset()
+            self.is_recording_dyn = False
+            self.dyn_buffer = []
+            self.last_wrist_pos = None
             return None, 0.0, results, None
 
-        if self.max_hands == 1:
-            features = hand_features.build_feature_vector(
-                results.multi_hand_landmarks[0], rotate=self.rotate_invariant
-            )
+        # Usamos la primera mano detectada
+        landmarks = results.multi_hand_landmarks[0]
+        features = hand_features.build_feature_vector(
+            landmarks, rotate=self.rotate_invariant
+        )
+
+        # --- Lógica de Segmentación Dinámica ---
+        mov = self._medir_movimiento(landmarks)
+
+        if mov > self.MOV_THRESHOLD:
+            # Hay movimiento -> Iniciamos o continuamos grabación dinámica
+            self.is_recording_dyn = True
+            self.still_frames_count = 0
+            self.dyn_buffer.append(features)
+            # Limitar buffer para no crecer infinitamente
+            if len(self.dyn_buffer) > 60:
+                self.dyn_buffer.pop(0)
+
+            # Mientras nos movemos, el modelo estático puede dar predicciones
+            # pero no confirmamos nada para evitar ruido.
+            probs_s = self.model_s.predict_proba([features])[0]
+            best_idx_s = probs_s.argmax()
+            label_s = self.encoder_s.inverse_transform([best_idx_s])[0]
+            conf_s = float(probs_s[best_idx_s])
+            return label_s, conf_s, results, None
+
         else:
-            features = hand_features.build_two_hand_feature_vector(
-                results.multi_hand_landmarks,
-                getattr(results, "multi_handedness", None),
-                rotate=self.rotate_invariant,
-            )
+            # Mano quieta
+            if self.is_recording_dyn:
+                self.still_frames_count += 1
+                self.dyn_buffer.append(features)
 
-        expected_len = self.meta["feature_length"]
-        if len(features) != expected_len:
-            # El modelo fue entrenado con otra configuracion (p.ej. 1 vs 2 manos)
-            return None, 0.0, results, None
+                # ¿Ha estado quieta el tiempo suficiente para finalizar el gesto?
+                if self.still_frames_count >= self.FRAMES_QUIETO_PARA_FINALIZAR:
+                    # --- INFERENCIA DINÁMICA ---
+                    if self.model_d and self.encoder_d:
+                        pooled = temporal_pooling.pool_sequence(self.dyn_buffer)
+                        probs_d = self.model_d.predict_proba([pooled])[0]
+                        best_idx_d = probs_d.argmax()
+                        label_d = self.encoder_d.inverse_transform([best_idx_d])[0]
+                        conf_d = float(probs_d[best_idx_d])
 
-        probs = self.model.predict_proba([features])[0]
-        best_idx = probs.argmax()
-        label = self.encoder.inverse_transform([best_idx])[0]
-        confidence = float(probs[best_idx])
+                        confirmed, avg_conf = self.smoother.update(label_d, conf_d)
+                        if confirmed:
+                            self.history.append(confirmed)
+                            self._emit_confirmed(confirmed, avg_conf)
 
-        confirmed, avg_conf = self.smoother.update(label, confidence)
-        if confirmed:
-            self.history.append(confirmed)
+                        # Resetear estado dinámico tras confirmación o finalización
+                        self.is_recording_dyn = False
+                        self.dyn_buffer = []
+                        return label_d, conf_d, results, confirmed
+                    else:
+                        self.is_recording_dyn = False
+                        self.dyn_buffer = []
 
-        return label, confidence, results, confirmed
+            # --- INFERENCIA ESTÁTICA (Default) ---
+            probs_s = self.model_s.predict_proba([features])[0]
+            best_idx_s = probs_s.argmax()
+            label_s = self.encoder_s.inverse_transform([best_idx_s])[0]
+            conf_s = float(probs_s[best_idx_s])
+
+            confirmed, avg_conf = self.smoother.update(label_s, conf_s)
+            if confirmed:
+                self.history.append(confirmed)
+                self._emit_confirmed(confirmed, avg_conf)
+
+            return label_s, conf_s, results, confirmed
 
     def draw_overlay(self, frame, label, confidence, results, confirmed):
         if results and results.multi_hand_landmarks:
@@ -106,8 +196,9 @@ class CustomSignTranslator:
                 self.mp_drawing.draw_landmarks(frame, hand_lm, self.mp_hands.HAND_CONNECTIONS)
 
         if label:
+            color = (0, 255, 0) if confirmed else (100, 100, 100)
             cv2.putText(frame, f"{label} ({confidence*100:.0f}%)", (30, 60),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.3, (100, 100, 100), 2)
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.3, color, 2)
         else:
             cv2.putText(frame, "Muestra tu mano", (30, 60),
                         cv2.FONT_HERSHEY_SIMPLEX, 1.2, (100, 100, 100), 2)
@@ -116,62 +207,41 @@ class CustomSignTranslator:
             cv2.putText(frame, f"CONFIRMADO: {confirmed}", (30, 120),
                         cv2.FONT_HERSHEY_SIMPLEX, 1.4, (0, 255, 0), 3)
 
+        if self.is_recording_dyn:
+            cv2.putText(frame, "Capturando movimiento...", (30, 160),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+
         return frame
 
     def run_webcam(self, camera_id=None):
-
         cap, resolved_id = camera_utils.open_camera(camera_id)
         if cap is None:
             print("[ERROR] No se encontro ninguna camara disponible")
             return
 
         cv2.namedWindow(NOMBRE_VENTANA, cv2.WINDOW_NORMAL)
-
-        print(f"[OK] Camara {resolved_id} abierta. Presiona Q para salir, S para guardar captura.")
+        print(f"[OK] Camara {resolved_id} abierta. Presiona Q para salir.")
         try:
             while True:
                 ret, frame = cap.read()
-                if not ret:
-                    print("[ERROR] No se pudo leer un frame de la camara")
-                    break
-
+                if not ret: break
                 frame = cv2.flip(frame, 1)
                 label, confidence, results, confirmed = self.predict(frame)
                 frame = self.draw_overlay(frame, label, confidence, results, confirmed)
-
                 cv2.imshow(NOMBRE_VENTANA, frame)
-
-                # waitKey es quien procesa los eventos de la ventana (incluido
-                # el clic en la X), por eso debe ir ANTES de revisar la propiedad.
-                key = cv2.waitKey(1) & 0xFF
-
-                # Si el usuario cerró la ventana con la X, esta propiedad
-                # ya queda en < 1 justo después del waitKey de arriba.
-                if cv2.getWindowProperty(NOMBRE_VENTANA, cv2.WND_PROP_VISIBLE) < 1:
-                    print("[OK] Ventana cerrada por el usuario.")
-                    break
-
-                if key in (ord("q"), ord("Q")):
-                    break
-                elif key in (ord("s"), ord("S")):
-                    fname = f"captura_{int(time.time())}.jpg"
-                    cv2.imwrite(fname, frame)
-                    print(f"[OK] Imagen guardada: {fname}")
+                if cv2.waitKey(1) & 0xFF == ord("q"): break
+                if cv2.getWindowProperty(NOMBRE_VENTANA, cv2.WND_PROP_VISIBLE) < 1: break
         finally:
             cap.release()
             cv2.destroyAllWindows()
-            print(f"\n[OK] Historial de traduccion: {' '.join(self.history[-20:])}")
 
-def main():
-    parser = argparse.ArgumentParser(description="Traductor de señas personalizado en tiempo real")
-    parser.add_argument("--camera", type=int, default=None)
-    parser.add_argument("--models-dir", default=MODELS_DIR)
-    parser.add_argument("--hands", type=int, choices=[1, 2], default=1)
-    args = parser.parse_args()
-
-    translator = CustomSignTranslator(models_dir=args.models_dir, max_hands=args.hands)
-    translator.run_webcam(camera_id=args.camera)
-
+    def main():
+        parser = argparse.ArgumentParser(description="Traductor de señas personalizado")
+        parser.add_argument("--camera", type=int, default=None)
+        parser.add_argument("--models-dir", default=MODELS_DIR)
+        args = parser.parse_args()
+        translator = CustomSignTranslator(models_dir=args.models_dir)
+        translator.run_webcam(camera_id=args.camera)
 
 if __name__ == "__main__":
     main()

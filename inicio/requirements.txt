@@ -18,4 +18,8 @@ qrcode[pil]>=7.4.2
 pydantic>=2.6.0
 
 # Cámara Virtual
-pyvirtualcam>=0.11.0  
+pyvirtualcam>=0.11.0
+
+# Salida de Voz (TTS)
+pyttsx3>=2.90
+edge-tts>=0.10.0

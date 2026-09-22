@@ -9,20 +9,6 @@ Diferencia clave: aqui NO se entrena una CNN sobre pixeles de un dataset
 descargado. Se entrena un clasificador clasico (scikit-learn) sobre los
 vectores de landmarks normalizados que el propio usuario grabo con su
 camara para SUS palabras/señas personalizadas.
-
-Ventajas de este enfoque para el objetivo pedido (maxima precision,
-funcionar igual en interior/exterior):
-  - El vector de entrada ya es invariante a fondo, iluminacion, posicion
-    y escala (ver hand_features.py), asi que el clasificador no tiene
-    que "aprender" a ignorar esas variaciones como si tendria que hacerlo
-    una CNN sobre pixeles crudos.
-  - Con 63-78 valores numericos por muestra, un RandomForest o una SVM
-    aprende muy bien con apenas 20-50 muestras reales por palabra (mas
-    la data aumentada sintetica), mientras que una CNN necesitaria miles
-    de imagenes por clase para no sobreajustar.
-  - Es mucho mas rapido de entrenar (segundos, no hay que instalar/usar
-    GPU) y el modelo resultante pesa unos pocos KB/MB en vez de cientos
-    de MB.
 """
 
 import argparse
@@ -38,30 +24,13 @@ from sklearn.metrics import classification_report
 import joblib
 
 import dataset_manager
+import temporal_pooling
 
 MODELS_DIR = "./models"
 
 
-def train(dataset_dir, model_type="random_forest", augment_factor=20,
-          test_size=0.2, models_dir=MODELS_DIR):
-    os.makedirs(models_dir, exist_ok=True)
-
-    words = dataset_manager.get_existing_words(dataset_dir)
-    if len(words) < 2:
-        raise RuntimeError(
-            "Se necesitan al menos 2 palabras/señas distintas capturadas "
-            f"para entrenar. Encontradas: {words}"
-        )
-
-    print(f"Palabras encontradas ({len(words)}): {', '.join(words)}")
-    for w in words:
-        print(f"  - {w}: {dataset_manager.count_samples_for_word(w, dataset_dir)} muestras reales")
-
-    X, y_labels = dataset_manager.build_training_arrays(
-        dataset_dir, augment_factor=augment_factor
-    )
-    print(f"\\nTotal de muestras tras aumentacion: {len(X)}")
-
+def train_core(X, y_labels, model_type, augment_factor, test_size):
+    """Lógica interna de entrenamiento compartida para estáticos y dinámicos."""
     encoder = LabelEncoder()
     y = encoder.fit_transform(y_labels)
 
@@ -85,34 +54,95 @@ def train(dataset_dir, model_type="random_forest", augment_factor=20,
             n_jobs=-1,
         )
 
-    print(f"\\nEntrenando modelo ({model_type})...")
     clf.fit(X_train, y_train)
-
     scores = cross_val_score(clf, X_train, y_train, cv=5)
-    print(f"Precision validacion cruzada (5-fold): {scores.mean()*100:.2f}% (+/- {scores.std()*100:.2f}%)")
 
     y_pred = clf.predict(X_test)
-    print("\\nReporte de clasificacion (conjunto de prueba):")
     print(classification_report(y_test, y_pred, target_names=encoder.classes_))
 
-    model_path = os.path.join(models_dir, "custom_sign_model.pkl")
-    encoder_path = os.path.join(models_dir, "custom_sign_labels.pkl")
-    meta_path = os.path.join(models_dir, "custom_sign_meta.json")
+    return clf, encoder, scores.mean()
 
-    joblib.dump(clf, model_path)
-    joblib.dump(encoder, encoder_path)
-    with open(meta_path, "w", encoding="utf-8") as f:
-        json.dump({
-            "model_type": model_type,
-            "feature_length": X.shape[1],
-            "words": list(encoder.classes_),
-        }, f, ensure_ascii=False, indent=2)
 
-    print(f"\\nModelo guardado en: {model_path}")
-    print(f"Codificador de etiquetas guardado en: {encoder_path}")
-    print(f"Metadatos guardados en: {meta_path}")
+def train(dataset_dir, model_type="random_forest", augment_factor=20,
+          test_size=0.2, models_dir=MODELS_DIR):
+    os.makedirs(models_dir, exist_ok=True)
 
-    return clf, encoder
+    words = dataset_manager.get_existing_words(dataset_dir)
+    if len(words) < 2:
+        raise RuntimeError(
+            "Se necesitan al menos 2 palabras/señas distintas capturadas "
+            f"para entrenar. Encontradas: {words}"
+        )
+
+    print(f"Palabras encontradas ({len(words)}): {', '.join(words)}")
+
+    # ------------------------------------------------------------------
+    # 1. ENTRENAMIENTO ESTÁTICO
+    # ------------------------------------------------------------------
+    print("\n--- Entrenando Modelo Estático ---")
+    X_stat, y_stat = dataset_manager.build_training_arrays(
+        dataset_dir, augment_factor=augment_factor
+    )
+
+    # Verificación robusta para evitar el error de "truth value of an array"
+    if X_stat is not None and (isinstance(X_stat, list) and len(X_stat) > 0 or
+                              isinstance(X_stat, np.ndarray) and X_stat.size > 0):
+        clf_s, enc_s, score_s = train_core(X_stat, y_stat, model_type, augment_factor, test_size)
+
+        joblib.dump(clf_s, os.path.join(models_dir, "custom_sign_model.pkl"))
+        joblib.dump(enc_s, os.path.join(models_dir, "custom_sign_labels.pkl"))
+        with open(os.path.join(models_dir, "custom_sign_meta.json"), "w", encoding="utf-8") as f:
+            json.dump({
+                "model_type": model_type,
+                "feature_length": X_stat.shape[1] if hasattr(X_stat, 'shape') else len(X_stat[0]),
+                "words": list(enc_s.classes_),
+                "type": "static"
+            }, f, ensure_ascii=False, indent=2)
+        print(f"Modelo estático guardado. Precision: {score_s*100:.2f}%")
+    else:
+        print("No se encontraron muestras estáticas.")
+
+    # ------------------------------------------------------------------
+    # 2. ENTRENAMIENTO DINÁMICO
+    # ------------------------------------------------------------------
+    print("\n--- Entrenando Modelo Dinámico ---")
+    X_dyn_raw, y_dyn_raw = dataset_manager.load_dataset(dataset_dir, sample_type="dynamic")
+
+    # Verificación simple sobre la longitud de la lista para evitar ambigüedad de NumPy
+    if X_dyn_raw is not None and len(X_dyn_raw) > 0:
+        # Aplicar Temporal Pooling: convertir secuencias en vectores resumen
+        X_dyn_pooled = np.array([temporal_pooling.pool_sequence(s) for s in X_dyn_raw])
+
+        # Aumentación sintética simple para dinámicos (ruido gaussiano)
+        X_dyn, y_dyn = [], []
+        for feat, label in zip(X_dyn_pooled, y_dyn_raw):
+            X_dyn.append(feat)
+            y_dyn.append(label)
+            # Generamos algunas variaciones para evitar sobreajuste
+            for _ in range(augment_factor // 2): # Menos aumentación que en estáticos
+                noise = np.random.normal(0, 0.01, size=feat.shape).astype(np.float32)
+                X_dyn.append(feat + noise)
+                y_dyn.append(label)
+
+        X_dyn = np.array(X_dyn)
+        y_dyn = np.array(y_dyn)
+
+        clf_d, enc_d, score_d = train_core(X_dyn, y_dyn, model_type, augment_factor, test_size)
+
+        joblib.dump(clf_d, os.path.join(models_dir, "custom_sign_model_dinamico.pkl"))
+        joblib.dump(enc_d, os.path.join(models_dir, "custom_sign_labels_dinamico.pkl"))
+        with open(os.path.join(models_dir, "custom_sign_meta_dinamico.json"), "w", encoding="utf-8") as f:
+            json.dump({
+                "model_type": model_type,
+                "feature_length": X_dyn.shape[1] if hasattr(X_dyn, 'shape') else len(X_dyn[0]),
+                "words": list(enc_d.classes_),
+                "type": "dynamic"
+            }, f, ensure_ascii=False, indent=2)
+        print(f"Modelo dinámico guardado. Precision: {score_d*100:.2f}%")
+    else:
+        print("No se encontraron muestras dinámicas.")
+
+    return clf_s if 'clf_s' in locals() else None, enc_s if 'enc_s' in locals() else None
 
 
 def main():

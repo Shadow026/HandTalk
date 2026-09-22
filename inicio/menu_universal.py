@@ -1943,6 +1943,15 @@ class UniversalMenuApp:
             messagebox.showerror("Error", "No se pudo abrir la cámara web.")
             return
 
+        # --- INTEGRACIÓN TTS ---
+        if self.tts_enabled.get():
+            try:
+                from tts_output import TTSOutput
+                self.tts_instance = TTSOutput(enabled=True)
+                self.translator_instance.register_callback(self.tts_instance.on_translation_confirmed)
+            except Exception as e:
+                logger.warning("No se pudo activar el TTS: %s", e)
+
         # Inicializar Cámara Virtual opcionalmente
         if self.vcam_enabled.get():
             try:
@@ -1972,6 +1981,10 @@ class UniversalMenuApp:
             except Exception:
                 pass
             self.translator_cap = None
+
+        if hasattr(self, 'tts_instance') and self.tts_instance:
+            self.tts_instance.stop()
+            self.tts_instance = None
 
         self.btn_toggle_translate.config(text="Iniciar Traducción en Vivo", bg=self.c_success)
 

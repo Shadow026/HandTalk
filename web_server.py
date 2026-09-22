@@ -318,7 +318,7 @@ async def login_post(request: Request):
         except Exception:
             pin_ingresado = None
 
-    # 2. Parseo nativo de application/x-www-form-urlencoded (evita depender de librerías externas)
+    # 2. Parseo nativo de application/x-www-form-urlencoded
     if not pin_ingresado:
         try:
             raw_body = await request.body()
@@ -338,7 +338,12 @@ async def login_post(request: Request):
 
     pin_str = str(pin_ingresado).strip() if pin_ingresado is not None else ""
 
-    if not pin_str or not session_manager.validate_pin(pin_str):
+    # Log de depuración para comparar PINs
+    current_manager = get_session_manager()
+    logger.info("Intento de Login - IP: %s | PIN Ingresado: '%s' | PIN Esperado: '%s'",
+                client_ip, pin_str, current_manager.pin)
+
+    if not pin_str or not current_manager.validate_pin(pin_str):
         logger.warning("Fallo de autenticación con PIN desde IP %s.", client_ip)
         if "application/json" in content_type:
             raise HTTPException(
@@ -351,7 +356,7 @@ async def login_post(request: Request):
         return response
 
     # Crear sesión activa
-    session_id = session_manager.create_session(client_ip)
+    session_id = current_manager.create_session(client_ip)
     if not session_id:
         if "application/json" in content_type:
             raise HTTPException(
@@ -371,7 +376,7 @@ async def login_post(request: Request):
         httponly=True,
         samesite="lax",
         path="/",
-        max_age=session_manager.ttl_seconds,
+        max_age=current_manager.ttl_seconds,
     )
     logger.info("Autenticación exitosa por PIN desde IP %s.", client_ip)
     return res

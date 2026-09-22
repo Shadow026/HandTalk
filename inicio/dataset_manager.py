@@ -101,7 +101,8 @@ def load_dataset(dataset_dir=DEFAULT_DATASET_DIR, sample_type=None):
             sample = json.load(f)
         if sample_type and sample.get("type") != sample_type:
             continue
-        X.append(np.array(sample["features"], dtype=np.float32))
+        # Guardamos como lista para evitar errores de ambigüedad de NumPy durante la carga
+        X.append(sample["features"])
         y.append(sample["label"])
 
     return X, y
