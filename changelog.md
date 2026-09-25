@@ -2,6 +2,32 @@
 
 Este archivo registra los cambios, mejoras y correcciones implementadas en el proyecto.
 
+## [2026-09-25] - Soporte Multimanual y Optimización de Captura
+
+### 🚀 Nuevas Funcionalidades
+- **Soporte para Señas a Dos Manos**:
+    - Implementación de extracción de características polimórfica en `hand_features.py` y `realtime_translator.py` para soportar vectores de una y dos manos.
+    - Creación de modelos independientes para señas de dos manos (`custom_sign_model_two_hands.pkl`).
+    - Actualización de la GUI de captura para permitir el registro de muestras con ambas manos.
+- **Sistema de Captura Autónoma**:
+    - **Trigger por Gesto**: Implementación de activación automática mediante la detección de "puño cerrado" para permitir la captura sin asistencia externa.
+    - **Temporizador de Captura**: Adición de un botón de cuenta regresiva (5s) para facilitar la posición de las manos antes de la toma de muestra.
+- **Mejoras de UI/UX**:
+    - Ajuste de resolución de ventana (1024x680) y límites mínimos para evitar desbordamientos en pantallas de 1366x768px.
+    - Integración de funciones de "Renombrar" y "Eliminar" palabras directamente desde la pestaña de Entrenamiento.
+
+### 🐛 Correcciones de Errores
+- **Estabilización de Inferencia Dinámica**:
+    - Solución al problema del "parpadeo" mediante la implementación de un sistema de histéresis (persistencia de confirmación).
+    - Optimización de los umbrales de movimiento (`MOV_THRESHOLD`) y quietud (`FRAMES_QUIETO_PARA_FINALIZAR`) para reducir falsos negativos.
+- **Corrección de Entrenamiento (NumPy)**:
+    - Solucionado el error de `inhomogeneous shape` al entrenar datasets mixtos (1 y 2 manos) mediante la separación de muestras por dimensionalidad en `train_classifier.py` y `dataset_manager.py`.
+- **Estabilidad de la GUI**:
+    - Corrección de `NameError: name 'np' is not defined` en el hilo de captura.
+    - Actualización de `max_num_hands` a 2 en el traductor para habilitar la visualización de landmarks en ambas manos.
+
+---
+
 ## [2026-09-21] - Integración de Ramas y Estabilización Final
 
 ### 🚀 Nuevas Funcionalidades
@@ -23,9 +49,9 @@ Este archivo registra los cambios, mejoras y correcciones implementadas en el pr
     - Refuerzo de seguridad con Rate Limiting y cabeceras CSP.
 
 ### 🐛 Correcciones de Errores
-- **Sincronización de PIN**: Solucionado el error donde el visor web rechazaba el PIN debido a la generación independiente en `qr_generator.py`.
+- **Sincronización de PIN**: Solucionando el error donde el visor web rechazaba el PIN debido a la generación independiente en `qr_generator.py`.
 - **Errores de Sintaxis y Módulos**: Corrección de literales de cadena no terminados en el traductor y resolución de `ModuleNotFoundError` para `temporal_pooling` y `qr_generator`.
-- **Estabilidad de Entrenamiento**: Solucionado el error de ambigüedad de NumPy (`truth value of an array`) en el entrenamiento de modelos dinámicos.
+- **Estabilidad de Entrenamiento**: Solucionando el error de ambigüedad de NumPy (`truth value of an array`) en el entrenamiento de modelos dinámicos.
 - **Gestión de Recursos**: Implementación del método `cleanup()` en `CaptureGUI` para liberar la cámara al cambiar de pestaña en el menú universal.
 - **Dependencias**: Corrección de `NameError` por falta de importación de `Optional` en el módulo de generación de QR.
 

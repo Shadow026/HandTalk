@@ -48,9 +48,12 @@ Este documento sirve como registro rápido de las tareas completadas y el progre
 ## 🕒 Próximas Tareas (Prioridad)
 
 ### Integración y Pulido
-- [ ] **Diseño Visual**: Mejorar la interfaz del visor web según los requerimientos de diseño.
+- [ ] **Diseño Visual**: Mejorar la interfaz del visor web según los requerimientos de diseño (UI/UX profesional).
+- [ ] **Validación de Cámara Virtual**: Pruebas de latencia y estabilidad en videollamadas reales (Meet/Zoom/Teams) y verificación de la degradación suave (fallbacks).
+- [ ] **Documentación de Usuario**: Crear guía de uso para la captura autónoma (gesto de puño) y el entrenamiento de señas multimanuales.
+- [ ] **Auditoría de Seguridad**: Pruebas de estrés sobre el Rate Limiting y validación de la neutralización de payloads XSS en el visor.
 
 ---
 
-**Última actualización**: 2026-09-21
-**Estado General**: 🟢 Fase 1 Finalizada | 🟢 Fase 2 (Visor Web) Finalizada | 🟢 Integración de Ramas Completada.
+**Última actualización**: 2026-09-25
+**Estado General**: 🟢 Fase 1 Finalizada | 🟢 Fase 2 (Visor Web) Finalizada | 🟢 Integración de Ramas Completada | 🟢 Soporte Multimanual Implementado | 🟡 Fase 3 en etapa de Validación Final.

@@ -18,6 +18,7 @@ import mediapipe as mp
 import threading
 import os
 import time
+import numpy as np
 
 import camera_utils
 import hand_features
@@ -40,6 +41,13 @@ class CaptureGUI:
         self.cap = None
         self.camera_id = camera_id
 
+        # Trigger Autónomo
+        self.trigger_active = False
+        self.trigger_frames = 0
+        self.TRIGGER_THRESHOLD = 15 # Frames de puño cerrado para activar
+        self.is_counting_down = False
+        self.countdown_value = 3
+
         # Modo de captura: "static" o "dynamic"
         self.capture_mode = tk.StringVar(value="static")
 
@@ -47,7 +55,7 @@ class CaptureGUI:
         self.mp_hands = mp.solutions.hands
         self.hands = self.mp_hands.Hands(
             static_image_mode=False,
-            max_num_hands=1,
+            max_num_hands=2,
             min_detection_confidence=0.7,
             min_tracking_confidence=0.5
         )
@@ -108,6 +116,10 @@ class CaptureGUI:
         self.btn_capture = ttk.Button(self.side_panel, text="Guardar Muestra (S)", command=self.save_current_sample, state=tk.DISABLED)
         self.btn_capture.pack(fill=tk.X, pady=5)
 
+        # Botón Temporizador
+        self.btn_timer = ttk.Button(self.side_panel, text="Temporizador (5s)", command=self.start_timer_capture, state=tk.DISABLED)
+        self.btn_timer.pack(fill=tk.X, pady=5)
+
         # Contador de Muestras
         self.lbl_count = tk.Label(self.side_panel, text="Muestras: 0", font=("Segoe UI", 12, "bold"),
                                  bg="#FFFFFF", fg="#4834D4")
@@ -128,6 +140,23 @@ class CaptureGUI:
                                    bg="#D1D8E0", fg="#778CA3", font=("Segoe UI", 14))
         self.video_label.pack(fill=tk.BOTH, expand=True)
 
+    def show_capture_progress(self, show: bool):
+        if show:
+            self.progress_lbl = tk.Label(self.side_panel, text="Capturando secuencia...",
+                                        bg="#FFFFFF", fg="#4834D4",
+                                        font=("Segoe UI", 10, "bold"))
+            self.progress_lbl.pack(pady=5)
+        elif hasattr(self, 'progress_lbl'):
+            self.progress_lbl.destroy()
+
+    def _finalize_capture_success(self):
+        self.sample_count += 1
+        self.lbl_count.config(text=f"Muestras: {self.sample_count}")
+        self.update_words_list()
+
+    def _finalize_capture_error(self, error_msg):
+        messagebox.showerror("Error Dinámico", f"Error capturando secuencia: {error_msg}")
+
     def update_words_list(self):
         self.words_list.delete(0, tk.END)
         for word in dataset_manager.get_existing_words():
@@ -143,15 +172,14 @@ class CaptureGUI:
 
             self.btn_camera.config(text="Cerrar Cámara")
             self.btn_capture.config(state=tk.NORMAL)
+            self.btn_timer.config(state=tk.NORMAL)
             self.is_capturing = True
 
-            # El hilo secundario SOLO captura y procesa frames (nada de Tkinter aquí)
             self.frame_actual = None
             self.frame_lock = threading.Lock()
             self.thread = threading.Thread(target=self.capture_loop, daemon=True)
             self.thread.start()
 
-            # El hilo principal (Tkinter) es quien actualiza el Label
             self.update_video()
         else:
             self.is_capturing = False
@@ -159,10 +187,10 @@ class CaptureGUI:
             self.cap = None
             self.btn_camera.config(text="Abrir Cámara")
             self.btn_capture.config(state=tk.DISABLED)
+            self.btn_timer.config(state=tk.DISABLED)
             self.video_label.config(image='', text="La cámara estará aquí")
 
     def capture_loop(self):
-        """Corre en un hilo aparte: SOLO captura y procesa, nunca toca Tkinter."""
         while self.is_capturing:
             ret, frame = self.cap.read()
             if not ret:
@@ -173,6 +201,10 @@ class CaptureGUI:
             results = self.hands.process(rgb_frame)
 
             if results.multi_hand_landmarks:
+                # --- LÓGICA DE TRIGGER AUTÓNOMO (Puño Cerrado) ---
+                if not self.is_counting_down:
+                    self._check_trigger_gesture(results)
+
                 for hand_landmarks in results.multi_hand_landmarks:
                     self.mp_draw.draw_landmarks(
                         frame, hand_landmarks, self.mp_hands.HAND_CONNECTIONS
@@ -183,9 +215,69 @@ class CaptureGUI:
 
         self.cap and self.cap.release()
 
+    def _check_trigger_gesture(self, results):
+        """Detecta si el usuario cierra el puño para iniciar la captura."""
+        if not results.multi_hand_landmarks:
+            self.trigger_frames = 0
+            return
+
+        # Analizamos la primera mano detectada
+        landmarks = results.multi_hand_landmarks[0]
+
+        # Definimos 'puño cerrado' como: puntas de los dedos cerca de la muñeca
+        # Distancia normalizada entre punta del dedo medio (12) y muñeca (0)
+        wrist = landmarks.landmark[0]
+        tips = [landmarks.landmark[8], landmarks.landmark[12], landmarks.landmark[16], landmarks.landmark[20]]
+
+        is_closed = True
+        for tip in tips:
+            dist = np.sqrt((tip.x - wrist.x)**2 + (tip.y - wrist.y)**2)
+            if dist > 0.15: # Umbral de puño cerrado
+                is_closed = False
+                break
+
+        if is_closed:
+            self.trigger_frames += 1
+            if self.trigger_frames >= self.TRIGGER_THRESHOLD:
+                self.trigger_active = True
+                self.is_counting_down = True
+                self.root.after(0, self.start_autonomous_countdown)
+        else:
+            self.trigger_frames = 0
+
+    def start_autonomous_countdown(self):
+        """Cuenta regresiva visual antes de guardar la muestra."""
+        self.countdown_value = 3
+        def count():
+            if self.countdown_value > 0:
+                print(f"Capturando en: {self.countdown_value}...")
+                self.countdown_value -= 1
+                self.root.after(1000, count)
+            else:
+                print("¡CAPTURANDO AHORA!")
+                self.save_current_sample()
+                self.is_counting_down = False
+                self.trigger_frames = 0
+        count()
+
+    def start_timer_capture(self):
+        """Inicia una cuenta regresiva de 5 segundos antes de capturar."""
+        self.is_counting_down = True
+        self.countdown_value = 5
+
+        def count():
+            if self.countdown_value > 0:
+                print(f"Temporizador: {self.countdown_value} segundos para capturar...")
+                self.countdown_value -= 1
+                self.root.after(1000, count)
+            else:
+                print("¡TIEMPO AGOTADO - CAPTURANDO!")
+                self.save_current_sample()
+                self.is_counting_down = False
+
+        count()
+
     def update_video(self):
-        """Corre en el hilo principal (Tkinter) vía root.after(). Aquí sí se
-        puede tocar el widget de forma segura."""
         if not self.is_capturing:
             return
 
@@ -200,8 +292,6 @@ class CaptureGUI:
             self.video_label.imgtk = imgtk
             self.video_label.config(image=imgtk, text="")
 
-        # Se reprograma a sí mismo cada ~15ms (~60 FPS máximo), siempre
-        # dentro del hilo principal de Tkinter.
         self.root.after(15, self.update_video)
 
     def save_current_sample(self):
@@ -212,7 +302,6 @@ class CaptureGUI:
 
         mode = self.capture_mode.get()
 
-        # --- MODO ESTÁTICO ---
         if mode == "static":
             ret, frame = self.cap.read()
             if not ret:
@@ -228,8 +317,16 @@ class CaptureGUI:
                 return
 
             try:
-                landmarks = results.multi_hand_landmarks[0]
-                feature_vector = hand_features.build_feature_vector(landmarks)
+                # SOPORTE PARA DOS MANOS (ESTÁTICAS)
+                if len(results.multi_hand_landmarks) == 2:
+                    feature_vector = hand_features.build_two_hand_feature_vector(
+                        results.multi_hand_landmarks,
+                        multi_handedness=results.multi_handedness
+                    )
+                else:
+                    landmarks = results.multi_hand_landmarks[0]
+                    feature_vector = hand_features.build_feature_vector(landmarks)
+
                 dataset_manager.save_sample(feature_vector, word, sample_type="static")
 
                 self.sample_count += 1
@@ -238,57 +335,54 @@ class CaptureGUI:
             except Exception as e:
                 messagebox.showerror("Error Crítico", f"Error al procesar landmarks: {str(e)}")
 
-        # --- MODO DINÁMICO ---
         else:
-            # Capturamos una secuencia de frames (ej. 20 frames)
-            sequence = []
-            num_frames = 20
+            def capture_worker():
+                sequence = []
+                num_frames = 20
+                self.root.after(0, lambda: self.show_capture_progress(True))
 
-            # Bloqueamos la UI temporalmente con un mensaje
-            progress_lbl = tk.Label(self.side_panel, text="Capturando secuencia...",
-                                    bg="#FFFFFF", fg=self.c_accent if hasattr(self, 'c_accent') else "#4834D4",
-                                    font=("Segoe UI", 10, "bold"))
-            progress_lbl.pack(pady=5)
+                try:
+                    for i in range(num_frames):
+                        ret, frame = self.cap.read()
+                        if not ret: break
 
-            try:
-                for i in range(num_frames):
-                    ret, frame = self.cap.read()
-                    if not ret: break
+                        frame = cv2.flip(frame, 1)
+                        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        results = self.hands.process(rgb_frame)
 
-                    frame = cv2.flip(frame, 1)
-                    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    results = self.hands.process(rgb_frame)
-
-                    if results.multi_hand_landmarks:
-                        landmarks = results.multi_hand_landmarks[0]
-                        features = hand_features.build_feature_vector(landmarks)
-                        sequence.append(features)
-                    else:
-                        # Si perdemos la mano, repetimos el último vector válido para mantener longitud
-                        if len(sequence) > 0:
-                            sequence.append(sequence[-1])
+                        if results.multi_hand_landmarks:
+                            # SOPORTE PARA DOS MANOS (DINÁMICAS)
+                            if len(results.multi_hand_landmarks) == 2:
+                                features = hand_features.build_two_hand_feature_vector(
+                                    results.multi_hand_landmarks,
+                                    multi_handedness=results.multi_handedness
+                                )
+                            else:
+                                landmarks = results.multi_hand_landmarks[0]
+                                features = hand_features.build_feature_vector(landmarks)
+                            sequence.append(features)
                         else:
-                            # Si no hay ninguna mano desde el inicio, abortamos
-                            raise RuntimeError("No se detectó la mano al inicio de la secuencia.")
+                            if len(sequence) > 0:
+                                sequence.append(sequence[-1])
+                            else:
+                                raise RuntimeError("No se detectó la mano al inicio de la secuencia.")
 
-                    # Pequeña pausa para dar tiempo a la cámara
-                    time.sleep(0.03)
+                        time.sleep(0.03)
 
-                if len(sequence) < num_frames:
-                    raise RuntimeError("La secuencia fue interrumpida.")
+                    if len(sequence) < num_frames:
+                        raise RuntimeError("La secuencia fue interrumpida.")
 
-                dataset_manager.save_sample(sequence, word, sample_type="dynamic")
-                self.sample_count += 1
-                self.lbl_count.config(text=f"Muestras: {self.sample_count}")
-                self.update_words_list()
+                    dataset_manager.save_sample(sequence, word, sample_type="dynamic")
+                    self.root.after(0, self._finalize_capture_success)
 
-            except Exception as e:
-                messagebox.showerror("Error Dinámico", f"Error capturando secuencia: {str(e)}")
-            finally:
-                progress_lbl.destroy()
+                except Exception as e:
+                    self.root.after(0, lambda: self._finalize_capture_error(str(e)))
+                finally:
+                    self.root.after(0, lambda: self.show_capture_progress(False))
+
+            threading.Thread(target=capture_worker, daemon=True).start()
 
     def run(self):
-        # Bind tecla 'S' para capturar rápidamente
         self.root.bind('s', lambda event: self.save_current_sample())
         self.root.bind('S', lambda event: self.save_current_sample())
         self.root.mainloop()

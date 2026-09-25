@@ -26,7 +26,7 @@ import threading
 import time
 import webbrowser
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext
+from tkinter import ttk, messagebox, scrolledtext, simpledialog
 from typing import Optional
 from datetime import datetime
 
@@ -60,8 +60,8 @@ class UniversalMenuApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("HandTalk — Traductor de Señas Universal")
-        self.root.geometry("1120x720")
-        self.root.minsize(1000, 680)
+        self.root.geometry("1024x680")
+        self.root.minsize(900, 600)
 
         # Paleta de colores profesional y moderna
         self.c_bg = "#F4F6F9"           # Fondo principal claro
@@ -89,6 +89,7 @@ class UniversalMenuApp:
 
         # Estado de traducción en vivo (Pestaña 4)
         self.is_translating: bool = False
+        self.translation_mode = tk.StringVar(value="auto") # "auto", "estatico", "dinamico"
         self.translator_cap = None
         self.translator_instance = None
         self.translation_thread: Optional[threading.Thread] = None
@@ -606,7 +607,39 @@ class UniversalMenuApp:
             cursor="hand2",
             command=self.start_training_thread
         )
-        self.btn_entrenar.pack(fill=tk.X, pady=(10, 0))
+        self.btn_entrenar.pack(fill=tk.X, pady=(10, 10))
+
+        # Botones de Gestión de Dataset
+        mgmt_box = tk.Frame(left_col, bg=self.c_card_bg)
+        mgmt_box.pack(fill=tk.X, pady=(0, 0))
+
+        self.btn_rename_word = tk.Button(
+            mgmt_box,
+            text="✏️ Renombrar",
+            font=("Segoe UI", 9),
+            bg="#EDF2F7",
+            fg=self.c_text_primary,
+            relief=tk.FLAT,
+            padx=10,
+            pady=5,
+            cursor="hand2",
+            command=self.on_rename_word
+        )
+        self.btn_rename_word.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 5))
+
+        self.btn_delete_word = tk.Button(
+            mgmt_box,
+            text="🗑️ Eliminar",
+            font=("Segoe UI", 9),
+            bg="#FED7D7",
+            fg=self.c_danger,
+            relief=tk.FLAT,
+            padx=10,
+            pady=5,
+            cursor="hand2",
+            command=self.on_delete_word
+        )
+        self.btn_delete_word.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(5, 0))
 
         # --- Columna Derecha: Consola Interactiva de Salida ---
         right_col = tk.Frame(content_box, bg=self.c_card_bg, padx=20, pady=20)
@@ -655,6 +688,43 @@ class UniversalMenuApp:
                 fg=self.c_success
             )
             self.btn_entrenar.config(state=tk.NORMAL, bg=self.c_sidebar_active)
+
+    def on_delete_word(self):
+        selected = self.tree_words.selection()
+        if not selected:
+            messagebox.showwarning("Atención", "Por favor, selecciona una palabra de la lista.")
+            return
+
+        word = self.tree_words.item(selected[0])["values"][0]
+
+        if messagebox.askyesno("Confirmar Eliminación", f"¿Estás seguro de que deseas eliminar la seña '{word}'?\n\nEsto borrará todas sus muestras del dataset."):
+            try:
+                removed = dataset_manager.delete_word(word)
+                if removed > 0:
+                    messagebox.showinfo("Éxito", f"Se eliminaron {removed} muestras de '{word}'.\n\n⚠️ El modelo actual ha quedado obsoleto. Debes reentrenar.")
+                    self.refresh_tab_entrenar_data()
+                    self.refresh_tab_inicio_data()
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo eliminar la palabra: {e}")
+
+    def on_rename_word(self):
+        selected = self.tree_words.selection()
+        if not selected:
+            messagebox.showwarning("Atención", "Por favor, selecciona una palabra de la lista.")
+            return
+
+        old_word = self.tree_words.item(selected[0])["values"][0]
+        new_word = simpledialog.askstring("Renombrar Seña", f"Nuevo nombre para '{old_word}':", initialvalue=old_word)
+
+        if new_word and new_word.strip() and new_word.strip() != old_word:
+            try:
+                count = dataset_manager.rename_word(old_word, new_word.strip())
+                if count > 0:
+                    messagebox.showinfo("Éxito", f"Se renombraron {count} muestras.\n\n⚠️ El modelo actual ha quedado obsoleto. Debes reentrenar.")
+                    self.refresh_tab_entrenar_data()
+                    self.refresh_tab_inicio_data()
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo renombrar la palabra: {e}")
 
     def start_training_thread(self):
         self.btn_entrenar.config(state=tk.DISABLED, text="Entrenando...")
@@ -1801,6 +1871,23 @@ class UniversalMenuApp:
         top_bar = tk.Frame(frame, bg=self.c_card_bg, padx=15, pady=12)
         top_bar.pack(fill=tk.X, pady=(0, 15))
 
+        # Selector de Modo de Traducción
+        mode_frame = tk.Frame(top_bar, bg=self.c_card_bg)
+        mode_frame.pack(side=tk.LEFT, padx=(0, 15))
+
+        tk.Label(mode_frame, text="Modo:", font=("Segoe UI", 9, "bold"),
+                 bg=self.c_card_bg, fg=self.c_text_primary).pack(side=tk.LEFT)
+
+        self.mode_combo = ttk.Combobox(
+            mode_frame,
+            textvariable=self.translation_mode,
+            values=["auto", "estatico", "dinamico"],
+            state="readonly",
+            width=10,
+            font=("Segoe UI", 9)
+        )
+        self.mode_combo.pack(side=tk.LEFT, padx=5)
+
         # Botón Iniciar/Detener Traducción
         self.btn_toggle_translate = tk.Button(
             top_bar,
@@ -1933,7 +2020,10 @@ class UniversalMenuApp:
     def start_live_translation(self):
         models_dir = os.path.join(PROJECT_ROOT, "models")
         try:
-            self.translator_instance = realtime_translator.CustomSignTranslator(models_dir=models_dir)
+            self.translator_instance = realtime_translator.CustomSignTranslator(
+                models_dir=models_dir,
+                mode=self.translation_mode.get()
+            )
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo inicializar el traductor: {e}")
             return

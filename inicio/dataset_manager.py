@@ -84,6 +84,35 @@ def delete_word(word, dataset_dir=DEFAULT_DATASET_DIR):
     return removed
 
 
+def rename_word(old_word, new_word, dataset_dir=DEFAULT_DATASET_DIR):
+    """
+    Renombra una palabra en el dataset.
+    Cambia tanto el nombre del archivo como el campo 'label' dentro del JSON.
+    """
+    count = 0
+    for path in glob.glob(os.path.join(dataset_dir, f"{old_word}_*.json")):
+        # 1. Actualizar contenido del JSON
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        data["label"] = new_word
+
+        # Crear nuevo nombre de archivo
+        filename = os.path.basename(path)
+        # El formato es palabra_indice_tipo.json
+        # Reemplazamos solo la primera ocurrencia de old_word al inicio
+        new_filename = filename.replace(old_word, new_word, 1)
+        new_path = os.path.join(dataset_dir, new_filename)
+
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+
+        os.rename(path, new_path)
+        count += 1
+    return count
+
+
+
 def load_dataset(dataset_dir=DEFAULT_DATASET_DIR, sample_type=None):
     """
     Carga todas las muestras del dataset.
@@ -148,4 +177,6 @@ def build_training_arrays(dataset_dir=DEFAULT_DATASET_DIR, augment_factor=20,
                 X.append(aug)
                 y.append(label)
 
-    return np.array(X, dtype=np.float32), np.array(y)
+    # Retornamos listas en lugar de np.array para soportar mezclas de 1 y 2 manos
+    # La conversión a array se hará en el entrenador después de separar por tamaño
+    return X, np.array(y)

@@ -23,31 +23,38 @@ import numpy as np
 
 def pool_sequence(secuencia):
     """
-    Convierte una secuencia de vectores en un único vector resumen.
+    Convierte una secuencia de vectores en un único vector resumen mediante muestreo estratégico.
+
+    En lugar de promedios, tomamos frames en puntos clave (0%, 25%, 50%, 75%, 100%)
+    para preservar la trayectoria y el orden del movimiento.
 
     Args:
         secuencia (list o np.array): Lista de vectores de landmarks.
                                     Ej: [[f1, f2...], [f1, f2...], ...]
 
     Returns:
-        np.array: Vector concatenado [medias, stds, deltas]
+        np.array: Vector concatenado de los frames muestreados.
     """
     if not secuencia or len(secuencia) == 0:
         return np.array([])
 
-    # Convertir a array de numpy para operaciones vectorizadas
     data = np.asarray(secuencia, dtype=np.float32)
+    n_frames = len(data)
 
-    # 1. Media (Average posture)
-    means = np.mean(data, axis=0)
+    # Definimos los índices de muestreo (inicio, 25%, 50%, 75%, fin)
+    indices = [
+        0,
+        n_frames // 4,
+        n_frames // 2,
+        (3 * n_frames) // 4,
+        n_frames - 1
+    ]
 
-    # 2. Desviación Estándar (Movement amplitude)
-    stds = np.std(data, axis=0)
+    # Seleccionamos los vectores en esos puntos
+    sampled_frames = [data[i] for i in indices]
 
-    # 3. Delta (Net movement: Last frame - First frame)
-    deltas = data[-1] - data[0]
-
-    # Concatenar todo en un solo vector plano
-    pooled_vector = np.concatenate([means, stds, deltas])
+    # Concatenamos todos los vectores muestreados en uno solo plano
+    pooled_vector = np.concatenate(sampled_frames)
 
     return pooled_vector
+

@@ -91,7 +91,6 @@ class CustomSignTranslator:
         )
 
         # Ajustamos el umbral de confianza para el suavizador
-        # Las señas dinámicas suelen tener picos de confianza más bajos que las estáticas
         dyn_conf = 0.60 if mode == "dinamico" else confidence_threshold
         self.smoother = PredictionSmoother(confidence_threshold=dyn_conf)
         self.history = []
@@ -101,13 +100,13 @@ class CustomSignTranslator:
         self.dyn_buffer = []            # Secuencia de vectores
         self.is_recording_dyn = False   # ¿Estamos en medio de un gesto?
         self.still_frames_count = 0      # Frames que la mano ha estado quieta
-        self.FRAMES_QUIETO_PARA_FINALIZAR = 10 # Reducido de 12 para una respuesta más rápida
-        self.MOV_THRESHOLD = 0.05      # Aumentado de 0.03 para evitar ruido del sensor
+        self.FRAMES_QUIETO_PARA_FINALIZAR = 10
+        self.MOV_THRESHOLD = 0.05
         self.last_wrist_pos = None
-        self.recording_start_time = None # Para evitar bloqueos infinitos
-        self.last_confirmed_word = None  # Para implementar histéresis
-        self.confirmed_persistence = 30  # Frames que mantenemos la palabra en pantalla (~1 seg)
-        self.persistence_counter = 0      # Contador actual de frames restantes
+        self.recording_start_time = None
+        self.last_confirmed_word = None
+        self.confirmed_persistence = 30
+        self.persistence_counter = 0
 
     def register_callback(self, callback):
         self._callbacks.append(callback)
@@ -121,15 +120,11 @@ class CustomSignTranslator:
                 print(f"[WARN] Error en callback: {e}")
 
     def _medir_movimiento(self, landmarks):
-        """Calcula el desplazamiento de la muñeca para detectar inicio de gesto."""
-        # Muñeca es landmark 0
         wrist = landmarks.landmark[0]
         curr_pos = np.array([wrist.x, wrist.y])
-
         if self.last_wrist_pos is None:
             self.last_wrist_pos = curr_pos
             return 0.0
-
         dist = np.linalg.norm(curr_pos - self.last_wrist_pos)
         self.last_wrist_pos = curr_pos
         return dist
@@ -151,29 +146,42 @@ class CustomSignTranslator:
             self.last_wrist_pos = None
             return None, 0.0, results, None
 
-        # Usamos la primera mano detectada
-        landmarks = results.multi_hand_landmarks[0]
-        features = hand_features.build_feature_vector(
-            landmarks, rotate=self.rotate_invariant
-        )
+        # --- EXTRACCIÓN DE CARACTERÍSTICAS (Polimórfica) ---
+        num_hands = len(results.multi_hand_landmarks)
+        if num_hands == 2:
+            features = hand_features.build_two_hand_feature_vector(
+                results.multi_hand_landmarks,
+                multi_handedness=results.multi_handedness,
+                rotate=self.rotate_invariant
+            )
+            current_model = self.model_2h
+            current_encoder = self.encoder_2h
+        else:
+            landmarks = results.multi_hand_landmarks[0]
+            features = hand_features.build_feature_vector(
+                landmarks, rotate=self.rotate_invariant
+            )
+            current_model = self.model_s
+            current_encoder = self.encoder_s
 
-        # --- Lógica de Segmentación Dinámica ---
-        mov = self._medir_movimiento(landmarks)
+        landmarks_ref = results.multi_hand_landmarks[0]
+        mov = self._medir_movimiento(landmarks_ref)
 
-        # 1. MODO ESTÁTICO: Ignoramos todo lo dinámico
+        # 1. MODO ESTÁTICO
         if self.mode == "estatico":
-            probs_s = self.model_s.predict_proba([features])[0]
-            best_idx_s = probs_s.argmax()
-            label_s = self.encoder_s.inverse_transform([best_idx_s])[0]
-            conf_s = float(probs_s[best_idx_s])
+            if current_model and current_encoder:
+                probs = current_model.predict_proba([features])[0]
+                best_idx = probs.argmax()
+                label = current_encoder.inverse_transform([best_idx])[0]
+                conf = float(probs[best_idx])
+                confirmed, avg_conf = self.smoother.update(label, conf)
+                if confirmed:
+                    self.history.append(confirmed)
+                    self._emit_confirmed(confirmed, avg_conf)
+                return label, conf, results, confirmed
+            return None, 0.0, results, None
 
-            confirmed, avg_conf = self.smoother.update(label_s, conf_s)
-            if confirmed:
-                self.history.append(confirmed)
-                self._emit_confirmed(confirmed, avg_conf)
-            return label_s, conf_s, results, confirmed
-
-        # 2. MODO DINÁMICO: Ignoramos las predicciones estáticas
+        # 2. MODO DINÁMICO
         if self.mode == "dinamico":
             if mov > self.MOV_THRESHOLD:
                 if not self.is_recording_dyn:
@@ -188,13 +196,10 @@ class CustomSignTranslator:
                 if self.is_recording_dyn:
                     self.still_frames_count += 1
                     self.dyn_buffer.append(features)
-
-                    # Seguridad: Si la grabación dura más de 4 segundos, forzar reset
                     if self.recording_start_time and (time.time() - self.recording_start_time > 4.0):
                         self.is_recording_dyn = False
                         self.dyn_buffer = []
                         return None, 0.0, results, None
-
                     if self.still_frames_count >= self.FRAMES_QUIETO_PARA_FINALIZAR:
                         if self.model_d and self.encoder_d:
                             pooled = temporal_pooling.pool_sequence(self.dyn_buffer)
@@ -202,15 +207,12 @@ class CustomSignTranslator:
                             best_idx_d = probs_d.argmax()
                             label_d = self.encoder_d.inverse_transform([best_idx_d])[0]
                             conf_d = float(probs_d[best_idx_d])
-
                             confirmed, avg_conf = self.smoother.update(label_d, conf_d)
                             if confirmed:
                                 self.history.append(confirmed)
                                 self._emit_confirmed(confirmed, avg_conf)
-                                # ACTIVAR PERSISTENCIA
                                 self.last_confirmed_word = confirmed
                                 self.persistence_counter = self.confirmed_persistence
-
                             self.is_recording_dyn = False
                             self.dyn_buffer = []
                             return label_d, conf_d, results, confirmed
@@ -219,25 +221,24 @@ class CustomSignTranslator:
                             self.dyn_buffer = []
                 return None, 0.0, results, None
 
-        # 3. MODO AUTO: Lógica híbrida original
+        # 3. MODO AUTO
         if mov > self.MOV_THRESHOLD:
             self.is_recording_dyn = True
             self.still_frames_count = 0
             self.dyn_buffer.append(features)
             if len(self.dyn_buffer) > 60:
                 self.dyn_buffer.pop(0)
-
-            probs_s = self.model_s.predict_proba([features])[0]
-            best_idx_s = probs_s.argmax()
-            label_s = self.encoder_s.inverse_transform([best_idx_s])[0]
-            conf_s = float(probs_s[best_idx_s])
-            return label_s, conf_s, results, None
-
+            if current_model and current_encoder:
+                probs = current_model.predict_proba([features])[0]
+                best_idx = probs.argmax()
+                label = current_encoder.inverse_transform([best_idx])[0]
+                conf = float(probs[best_idx])
+                return label, conf, results, None
+            return None, 0.0, results, None
         else:
             if self.is_recording_dyn:
                 self.still_frames_count += 1
                 self.dyn_buffer.append(features)
-
                 if self.still_frames_count >= self.FRAMES_QUIETO_PARA_FINALIZAR:
                     if self.model_d and self.encoder_d:
                         pooled = temporal_pooling.pool_sequence(self.dyn_buffer)
@@ -245,47 +246,39 @@ class CustomSignTranslator:
                         best_idx_d = probs_d.argmax()
                         label_d = self.encoder_d.inverse_transform([best_idx_d])[0]
                         conf_d = float(probs_d[best_idx_d])
-
                         confirmed, avg_conf = self.smoother.update(label_d, conf_d)
                         if confirmed:
                             self.history.append(confirmed)
                             self._emit_confirmed(confirmed, avg_conf)
-                            # ACTIVAR PERSISTENCIA
                             self.last_confirmed_word = confirmed
                             self.persistence_counter = self.confirmed_persistence
-
                         self.is_recording_dyn = False
                         self.dyn_buffer = []
                         return label_d, conf_d, results, confirmed
                     else:
                         self.is_recording_dyn = False
                         self.dyn_buffer = []
-
-            probs_s = self.model_s.predict_proba([features])[0]
-            best_idx_s = probs_s.argmax()
-            label_s = self.encoder_s.inverse_transform([best_idx_s])[0]
-            conf_s = float(probs_s[best_idx_s])
-
-            confirmed, avg_conf = self.smoother.update(label_s, conf_s)
-            if confirmed:
-                self.history.append(confirmed)
-                self._emit_confirmed(confirmed, avg_conf)
-
-            return label_s, conf_s, results, confirmed
+            if current_model and current_encoder:
+                probs = current_model.predict_proba([features])[0]
+                best_idx = probs.argmax()
+                label = current_encoder.inverse_transform([best_idx])[0]
+                conf = float(probs[best_idx])
+                confirmed, avg_conf = self.smoother.update(label, conf)
+                if confirmed:
+                    self.history.append(confirmed)
+                    self._emit_confirmed(confirmed, avg_conf)
+                return label, conf, results, confirmed
+            return None, 0.0, results, None
 
     def draw_overlay(self, frame, label, confidence, results, confirmed):
         if results and results.multi_hand_landmarks:
             for hand_lm in results.multi_hand_landmarks:
                 self.mp_drawing.draw_landmarks(frame, hand_lm, self.mp_hands.HAND_CONNECTIONS)
-
-        # Priorizar palabra persistente si existe
         display_label = label
         display_confirmed = confirmed
-
         if self.last_confirmed_word:
             display_label = self.last_confirmed_word
             display_confirmed = True
-
         if display_label:
             color = (0, 255, 0) if display_confirmed else (100, 100, 100)
             cv2.putText(frame, f"{display_label} ({confidence*100:.0f}%)", (30, 60),
@@ -293,15 +286,12 @@ class CustomSignTranslator:
         else:
             cv2.putText(frame, "Muestra tu mano", (30, 60),
                         cv2.FONT_HERSHEY_SIMPLEX, 1.2, (100, 100, 100), 2)
-
         if display_confirmed:
             cv2.putText(frame, f"CONFIRMADO: {display_label}", (30, 120),
                         cv2.FONT_HERSHEY_SIMPLEX, 1.4, (0, 255, 0), 3)
-
         if self.is_recording_dyn:
             cv2.putText(frame, "Capturando movimiento...", (30, 160),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
-
         return frame
 
     def run_webcam(self, camera_id=None):
@@ -309,7 +299,6 @@ class CustomSignTranslator:
         if cap is None:
             print("[ERROR] No se encontro ninguna camara disponible")
             return
-
         cv2.namedWindow(NOMBRE_VENTANA, cv2.WINDOW_NORMAL)
         print(f"[OK] Camara {resolved_id} abierta. Presiona Q para salir.")
         try:
