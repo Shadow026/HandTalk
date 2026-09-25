@@ -38,10 +38,15 @@ Este documento sirve como registro rápido de las tareas completadas y el progre
 ### 🚀 Integración Final y Mejoras Avanzadas
 - [x] **Menú Universal Unificado**: Integración de todo el ecosistema (Bienvenida, Captura, Entrenamiento, Paquetes y Traducción) en una aplicación centralizada (`inicio/menu_universal.py`).
 - [x] **Sistema de Paquetes**: Implementación de exportación/importación de datasets y modelos mediante archivos `.zip` con resolución de conflictos (`inicio/pack_manager.py`).
+- [x] **Gestión de Dataset**: Implementación de funcionalidades para renombrar y eliminar palabras del dataset con integración en la UI y avisos de re-entrenamiento.
 - [x] **Soporte de Señas Dinámicas**: Implementación de reconocimiento de gestos temporales mediante Temporal Pooling y segmentación de movimiento (`inicio/temporal_pooling.py` y `inicio/realtime_translator.py`).
 - [x] **Entrenamiento Dual**: Capacidad de entrenar modelos estáticos y dinámicos simultáneamente (`inicio/train_classifier.py`).
 - [x] **Salida de Voz (TTS)**: Implementación de feedback auditivo para traducciones confirmadas mediante hilos de trabajo desacoplados (`inicio/tts_output.py`).
 - [x] **Visor Web Sincronizado**: Sincronización total de credenciales (PIN/Token) entre el servidor y la interfaz de usuario.
+- [x] **Soporte Multimanual (2 Manos)**: Implementación de extracción de features polimórfica y entrenamiento de modelos independientes para señas de una y dos manos.
+- [x] **Captura Autónoma y Asistida**: Implementación de trigger por gesto (puño cerrado) y temporizador de cuenta regresiva (5s) para facilitar el registro de datos.
+- [x] **Estabilización de Inferencia**: Solución al "parpadeo" de traducciones mediante histéresis de confirmación y ajuste de umbrales de movimiento.
+- [x] **Corrección de Errores de Entrenamiento**: Solución al problema de dimensionalidad (`inhomogeneous shape`) en datasets mixtos.
 
 ---
 

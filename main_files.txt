@@ -19,7 +19,7 @@ inicio/web_security/auth.py
 inicio/web_security/rate_limiter.py
 inicio/web_security/schemas.py
 inicio/web_security/security_headers.py
-install.ps1
+install.ps1S
 install.sh
 login.html
 qr_generator.py

@@ -326,13 +326,13 @@ class CustomSignTranslator:
             cap.release()
             cv2.destroyAllWindows()
 
-    def main():
-        parser = argparse.ArgumentParser(description="Traductor de señas personalizado")
-        parser.add_argument("--camera", type=int, default=None)
-        parser.add_argument("--models-dir", default=MODELS_DIR)
-        args = parser.parse_args()
-        translator = CustomSignTranslator(models_dir=args.models_dir)
-        translator.run_webcam(camera_id=args.camera)
+def main():
+    parser = argparse.ArgumentParser(description="Traductor de señas personalizado")
+    parser.add_argument("--camera", type=int, default=None)
+    parser.add_argument("--models-dir", default=MODELS_DIR)
+    args = parser.parse_args()
+    translator = CustomSignTranslator(models_dir=args.models_dir)
+    translator.run_webcam(camera_id=args.camera)
 
 if __name__ == "__main__":
     main()

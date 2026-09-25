@@ -9,6 +9,9 @@ Este archivo registra los cambios, mejoras y correcciones implementadas en el pr
     - Implementación de extracción de características polimórfica en `hand_features.py` y `realtime_translator.py` para soportar vectores de una y dos manos.
     - Creación de modelos independientes para señas de dos manos (`custom_sign_model_two_hands.pkl`).
     - Actualización de la GUI de captura para permitir el registro de muestras con ambas manos.
+- **Gestión de Dataset**:
+    - Implementación de funciones para renombrar y eliminar palabras/señas del dataset (`dataset_manager.py`).
+    - Integración de botones de gestión en la pestaña de Entrenamiento con diálogos de confirmación y avisos de re-entrenamiento.
 - **Sistema de Captura Autónoma**:
     - **Trigger por Gesto**: Implementación de activación automática mediante la detección de "puño cerrado" para permitir la captura sin asistencia externa.
     - **Temporizador de Captura**: Adición de un botón de cuenta regresiva (5s) para facilitar la posición de las manos antes de la toma de muestra.
