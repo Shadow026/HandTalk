@@ -19,9 +19,9 @@ __pycache__/
 .ipynb_checkpoints/
 
 # Modelos y Datasets (estos se generan en runtime)
-models/*.pkl
-models/*.json
-custom_dataset/*.json
+inicio/models/*.pkl
+inicio/models/*.json
+inicio/custom_dataset/*.json
 
 # IDEs y OS
 .vscode/
@@ -34,3 +34,6 @@ camera_config.json
 
 # Imagen QR generada
 qr_visor.png
+
+#Sketch diccionario
+inicio/sketches/*.png
