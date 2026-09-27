@@ -30,10 +30,11 @@ guardados en custom_dataset/ y dibuja con Pillow.
 """
 
 import glob
+import json
 import os
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 import dataset_manager
 import hand_features
@@ -46,11 +47,13 @@ _SINGLE_HAND_LEN_HINT = 63 + 5 + 10  # 78
 
 DEFAULT_SKETCH_DIR = "sketches"
 DEFAULT_SIZE = 320
-DEFAULT_MARGIN = 36
+DEFAULT_MARGIN = 30
 DEFAULT_BG = (255, 255, 255)
 DEFAULT_LINE_COLOR = (30, 30, 30)
 DEFAULT_POINT_COLOR = (200, 40, 40)
 DEFAULT_WRIST_COLOR = (30, 90, 200)
+
+ROTATIONS_FILENAME = "_rotations.json"
 
 
 # ----------------------------------------------------------------------
@@ -106,7 +109,6 @@ def load_word_hand_samples(word, dataset_dir=dataset_manager.DEFAULT_DATASET_DIR
     hands_per_sample = []
 
     for path in sorted(glob.glob(pattern)):
-        import json
         with open(path, "r", encoding="utf-8") as f:
             sample = json.load(f)
 
@@ -156,7 +158,65 @@ def average_hand_pose(hands_per_sample):
 
 
 # ----------------------------------------------------------------------
-# 3. Dibujar el boceto con Pillow
+# 2b. Rotacion MANUAL por palabra (persistente)
+# ----------------------------------------------------------------------
+# hand_features.normalize_landmarks() solo corrige rotacion EN EL PLANO de
+# la imagen (ver su paso 3: alinea muñeca->nudillo_medio con el eje Y). Si
+# en la captura real la mano estaba inclinada HACIA la camara (rotacion en
+# 3D, no en el plano), esa inclinacion no se puede recuperar despues -- ya
+# se perdio al proyectar a 2D. Por eso, en vez de intentar adivinar una
+# rotacion automatica (que no podria arreglar ese caso), se guarda un
+# ajuste manual por palabra que el usuario define una vez (ver los botones
+# de rotar en diccionario_gui.py) y que se re-aplica cada vez que se
+# regenera el boceto.
+def _rotations_path(output_dir):
+    return os.path.join(output_dir, ROTATIONS_FILENAME)
+
+
+def load_rotations(output_dir=DEFAULT_SKETCH_DIR):
+    """Devuelve {palabra: grados} con los ajustes manuales guardados."""
+    path = _rotations_path(output_dir)
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def get_rotation(word, output_dir=DEFAULT_SKETCH_DIR):
+    """Grados de rotacion manual guardados para `word` (0 si no hay ninguno)."""
+    return load_rotations(output_dir).get(word, 0)
+
+
+def set_rotation(word, degrees, output_dir=DEFAULT_SKETCH_DIR):
+    """Guarda (persiste) la rotacion manual de `word`, en grados (sentido horario)."""
+    os.makedirs(output_dir, exist_ok=True)
+    rotations = load_rotations(output_dir)
+    rotations[word] = float(degrees) % 360
+    with open(_rotations_path(output_dir), "w", encoding="utf-8") as f:
+        json.dump(rotations, f, ensure_ascii=False, indent=2)
+    return rotations[word]
+
+
+def _rotate_points(points, degrees):
+    """
+    Rota un array (21,2) alrededor de la muñeca (que ya esta en el origen
+    (0,0) gracias a hand_features.normalize_landmarks). Rotacion en sentido
+    horario visualmente, en grados.
+    """
+    if not degrees:
+        return points
+    theta = np.radians(degrees)
+    cos_a, sin_a = np.cos(theta), np.sin(theta)
+    # signo negativo en sin para que sea sentido horario en coordenadas de imagen (Y hacia abajo)
+    rot = np.array([[cos_a, sin_a], [-sin_a, cos_a]])
+    return points @ rot.T
+
+
+# ----------------------------------------------------------------------
+# 3. Dibujar el boceto con Pillow (puntos + lineas, estilo original)
 # ----------------------------------------------------------------------
 def _fit_points_to_canvas(points, width, height, margin):
     """Escala y centra un array (21,2) para que quepa en un lienzo width x height."""
@@ -178,14 +238,17 @@ def _fit_points_to_canvas(points, width, height, margin):
 def draw_hand_sketch(hands_points, word=None, size=DEFAULT_SIZE, margin=DEFAULT_MARGIN,
                       bg_color=DEFAULT_BG, line_color=DEFAULT_LINE_COLOR,
                       point_color=DEFAULT_POINT_COLOR, wrist_color=DEFAULT_WRIST_COLOR,
-                      line_width=4, point_radius=6):
+                      line_width=4, point_radius=6, **_ignored):
     """
     hands_points: lista de arrays (21,2) -- una o dos manos ya promediadas
-                  (ver average_hand_pose). Si hay dos manos, se dibujan
-                  ambas en el mismo lienzo, separadas horizontalmente para
-                  que no queden superpuestas (cada una tiene su propio
-                  origen en (0,0) porque estan normalizadas a su propia
-                  muñeca).
+                  y ya rotadas (ver average_hand_pose / _rotate_points). Si
+                  hay dos manos, se dibujan ambas en el mismo lienzo,
+                  separadas horizontalmente para que no queden superpuestas.
+
+    Dibuja el diagrama de puntos y lineas: cada dedo como una linea que
+    conecta sus articulaciones (FINGER_CHAINS), con un punto en cada
+    landmark y la muñeca resaltada en otro color.
+
     Devuelve una imagen PIL.Image lista para guardar o mostrar.
     """
     img = Image.new("RGB", (size, size), bg_color)
@@ -227,10 +290,18 @@ def draw_hand_sketch(hands_points, word=None, size=DEFAULT_SIZE, margin=DEFAULT_
 # 4. Funcion de alto nivel: de una palabra a un archivo PNG
 # ----------------------------------------------------------------------
 def generate_sketch_for_word(word, dataset_dir=dataset_manager.DEFAULT_DATASET_DIR,
-                              output_dir=DEFAULT_SKETCH_DIR, **draw_kwargs):
+                              output_dir=DEFAULT_SKETCH_DIR, rotation_deg=None, **draw_kwargs):
     """
     Genera (o regenera) el boceto de `word` a partir de sus muestras
     guardadas y lo guarda como PNG en output_dir/word.png.
+
+    rotation_deg: grados a rotar el boceto (sentido horario). Si es None
+                  (default), se usa la rotacion MANUAL guardada para esta
+                  palabra (ver set_rotation/get_rotation) -- 0 si nunca se
+                  ajusto. Pasar un valor aqui NO lo guarda por si solo,
+                  solo afecta este render puntual; usa set_rotation() para
+                  que el ajuste persista entre regeneraciones.
+
     Devuelve la ruta del PNG generado, o None si la palabra no tiene
     muestras validas todavia.
     """
@@ -238,6 +309,11 @@ def generate_sketch_for_word(word, dataset_dir=dataset_manager.DEFAULT_DATASET_D
     averaged = average_hand_pose(hands_per_sample)
     if not averaged:
         return None
+
+    if rotation_deg is None:
+        rotation_deg = get_rotation(word, output_dir)
+    if rotation_deg:
+        averaged = [_rotate_points(h, rotation_deg) for h in averaged]
 
     img = draw_hand_sketch(averaged, word=word, **draw_kwargs)
 
@@ -272,7 +348,17 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", default=dataset_manager.DEFAULT_DATASET_DIR)
     parser.add_argument("--output", default=DEFAULT_SKETCH_DIR)
     parser.add_argument("--word", default=None, help="Genera solo esta palabra (default: todas).")
+    parser.add_argument(
+        "--rotate-by", type=float, default=None,
+        help="Rota (y GUARDA la rotacion) de --word estos grados, sentido horario. Requiere --word.",
+    )
     args = parser.parse_args()
+
+    if args.rotate_by is not None:
+        if not args.word:
+            parser.error("--rotate-by requiere --word")
+        nuevo = set_rotation(args.word, get_rotation(args.word, args.output) + args.rotate_by, args.output)
+        print(f"[OK] Rotacion de '{args.word}' ahora en {nuevo:.0f} grados")
 
     if args.word:
         path = generate_sketch_for_word(args.word, args.dataset, args.output)

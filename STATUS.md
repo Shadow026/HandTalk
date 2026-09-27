@@ -35,19 +35,32 @@ Este documento sirve como registro rápido de las tareas completadas y el progre
 
 ---
 
-### 🚀 Mejoras Adicionales (Fuera de Plan Original)
-- [x] **Modernización de GUI**: Rediseño completo de la interfaz principal con arquitectura de tarjetas, efectos de hover y paleta de colores profesional.
-- [x] **Soporte Multimodal**: Implementación de módulos independientes para traducción de dígitos (0-9) y letras (A-Z) integrados en una sola plataforma.
-- [x] **Tolerancia a Fallos**: Implementación de degradación suave en el módulo de cámara virtual para evitar cierres inesperados del sistema.
+### 🚀 Integración Final y Mejoras Avanzadas
+- [x] **Menú Universal Unificado**: Integración de todo el ecosistema (Bienvenida, Captura, Entrenamiento, Paquetes y Traducción) en una aplicación centralizada (`inicio/menu_universal.py`).
+- [x] **Sistema de Paquetes**: Implementación de exportación/importación de datasets y modelos mediante archivos `.zip` con resolución de conflictos (`inicio/pack_manager.py`).
+- [x] **Gestión de Dataset**: Implementación de funcionalidades para renombrar y eliminar palabras del dataset con integración en la UI y avisos de re-entrenamiento.
+- [x] **Soporte de Señas Dinámicas**: Implementación de reconocimiento de gestos temporales mediante Temporal Pooling y segmentación de movimiento (`inicio/temporal_pooling.py` y `inicio/realtime_translator.py`).
+- [x] **Entrenamiento Dual**: Capacidad de entrenar modelos estáticos y dinámicos simultáneamente (`inicio/train_classifier.py`).
+- [x] **Salida de Voz (TTS)**: Implementación de feedback auditivo para traducciones confirmadas mediante hilos de trabajo desacoplados (`inicio/tts_output.py`).
+- [x] **Generador de Bocetos / Diccionario Visual** *(Herber, Tarea 2)*: Generación automática de bocetos (puntos y líneas) de cada seña a partir de las muestras normalizadas del dataset, con pantalla de catálogo tipo diccionario (`inicio/sketch_generator.py`, `inicio/diccionario_gui.py`) — soporta una y dos manos, señas dinámicas, y ajuste manual de rotación por palabra (persistente) para corregir orientaciones capturadas en ángulos distintos.
+- [x] **Visor Web Sincronizado**: Sincronización total de credenciales (PIN/Token) entre el servidor y la interfaz de usuario.
+- [x] **Soporte Multimanual (2 Manos)**: Implementación de extracción de features polimórfica y entrenamiento de modelos independientes para señas de una y dos manos.
+- [x] **Captura Autónoma y Asistida**: Implementación de trigger por gesto (puño cerrado) y temporizador de cuenta regresiva (5s) para facilitar el registro de datos.
+- [x] **Estabilización de Inferencia**: Solución al "parpadeo" de traducciones mediante histéresis de confirmación y ajuste de umbrales de movimiento.
+- [x] **Corrección de Errores de Entrenamiento**: Solución al problema de dimensionalidad (`inhomogeneous shape`) en datasets mixtos.
 
 ---
 
 ## 🕒 Próximas Tareas (Prioridad)
 
 ### Integración y Pulido
-- [ ] **Diseño Visual**: Mejorar la interfaz del visor web según los requerimientos de diseño.
+- [ ] **Diseño Visual**: Mejorar la interfaz del visor web según los requerimientos de diseño (UI/UX profesional).
+- [ ] **Diseño del Diccionario Visual**: Coordinar con Wilfredo el estilo definitivo de la pantalla de catálogo de señas (la lógica y el ajuste de rotación ya funcionan).
+- [ ] **Validación de Cámara Virtual**: Pruebas de latencia y estabilidad en videollamadas reales (Meet/Zoom/Teams) y verificación de la degradación suave (fallbacks).
+- [ ] **Documentación de Usuario**: Crear guía de uso para la captura autónoma (gesto de puño) y el entrenamiento de señas multimanuales.
+- [ ] **Auditoría de Seguridad**: Pruebas de estrés sobre el Rate Limiting y validación de la neutralización de payloads XSS en el visor.
 
 ---
 
-**Última actualización**: 2026-09-15
-**Estado General**: 🟢 Fase 1 Finalizada | 🟢 Fase 2 (Visor Web) Finalizada.
+**Última actualización**: 2026-09-26 *(ajusta esta fecha si no es la correcta)*
+**Estado General**: 🟢 Fase 1 Finalizada | 🟢 Fase 2 (Visor Web) Finalizada | 🟢 Integración de Ramas Completada | 🟢 Soporte Multimanual Implementado | 🟡 Fase 3 en etapa de Validación Final.

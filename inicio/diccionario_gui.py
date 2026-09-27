@@ -109,18 +109,51 @@ class DictionaryScreen(tk.Tk):
         card = ttk.Frame(self.grid_frame, padding=10, relief="groove")
         card.grid(row=row, column=col, padx=10, pady=10)
 
+        image_label = ttk.Label(card)
+        image_label.pack()
+        self._set_card_image(image_label, sketch_path)
+
+        n_muestras = dataset_manager.count_samples_for_word(word, self.dataset_dir)
+        ttk.Label(card, text=f"{word}  ({n_muestras} muestras)", font=("Segoe UI", 11, "bold")).pack(pady=(6, 0))
+
+        # Botones para corregir manualmente la orientacion de ESTA palabra
+        # (ver sketch_generator.set_rotation): normalize_landmarks() solo
+        # corrige rotacion EN EL PLANO de la imagen: si la seña se capturo
+        # con la mano inclinada hacia la camara (rotacion en 3D), eso no se
+        # puede recuperar automaticamente -- por eso el ajuste es manual,
+        # una vez por palabra, y queda guardado para la proxima vez.
+        rotate_bar = ttk.Frame(card)
+        rotate_bar.pack(pady=(4, 0))
+        ttk.Button(
+            rotate_bar, text="⟲", width=3,
+            command=lambda w=word, lbl=image_label: self._rotate_word(w, lbl, -15),
+        ).pack(side="left", padx=2)
+        ttk.Button(
+            rotate_bar, text="⟳", width=3,
+            command=lambda w=word, lbl=image_label: self._rotate_word(w, lbl, 15),
+        ).pack(side="left", padx=2)
+
+    def _set_card_image(self, image_label, sketch_path):
         if sketch_path and os.path.exists(sketch_path):
             pil_img = Image.open(sketch_path)
             photo = ImageTk.PhotoImage(pil_img)
             self._photo_refs.append(photo)  # referencia viva, si no Tkinter la descarta
-            ttk.Label(card, image=photo).pack()
+            image_label.configure(image=photo, text="")
+            image_label.image = photo
         else:
-            ttk.Label(card, text="(sin boceto)", width=20, anchor="center").pack(
-                pady=self.thumb_size // 2
+            image_label.configure(
+                text="(sin boceto)", image="", width=20, anchor="center",
+                padding=self.thumb_size // 2,
             )
 
-        n_muestras = dataset_manager.count_samples_for_word(word, self.dataset_dir)
-        ttk.Label(card, text=f"{word}  ({n_muestras} muestras)", font=("Segoe UI", 11, "bold")).pack(pady=(6, 0))
+    def _rotate_word(self, word, image_label, delta_degrees):
+        """Ajusta (y guarda) la rotacion de `word` y refresca solo esa tarjeta."""
+        nuevo_angulo = sketch_generator.get_rotation(word, self.sketches_dir) + delta_degrees
+        sketch_generator.set_rotation(word, nuevo_angulo, self.sketches_dir)
+        new_path = sketch_generator.generate_sketch_for_word(
+            word, self.dataset_dir, self.sketches_dir, size=self.thumb_size
+        )
+        self._set_card_image(image_label, new_path)
 
 
 def main():
