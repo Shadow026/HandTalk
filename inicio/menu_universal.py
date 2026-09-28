@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 menu_universal.py
-Menú Universal de HandTalk — Centro de Control Unificado
+Menú Universal de MakeSign — Centro de Control Unificado
 
 Unifica en una sola aplicación moderna:
 - Pestaña 1: Inicio / Bienvenida, diagnóstico del sistema y guía de 3 pasos.
@@ -11,7 +11,7 @@ Unifica en una sola aplicación moderna:
 - Pestaña 4: Traducción en tiempo real unificada con el Visor Web (FastAPI/QR/PIN)
              y salidas desacopladas (TTS y Cámara Virtual).
 
-Responsable de Integración: Francisco (Arquitecto) y equipo HandTalk.
+Responsable de Integración: Francisco (Arquitecto) y equipo MakeSign.
 """
 
 import asyncio
@@ -53,15 +53,40 @@ import train_classifier
 import web_server
 from gui_captura import CaptureGUI
 
-logger = logging.getLogger("HandTalk.MenuUniversal")
+logger = logging.getLogger("makesign.MenuUniversal")
 
+# ============================================================================
+# CONSTANTES DE FUENTES Y ESTILOS
+# ============================================================================
+FONT_TITLE     = ("Segoe UI", 20, "bold")   # Títulos de página
+FONT_SUBTITLE  = ("Segoe UI", 11)            # Subtítulos grandes
+FONT_SECTION   = ("Segoe UI", 12, "bold")   # Títulos de sección
+FONT_BODY      = ("Segoe UI", 10)            # Texto normal
+FONT_SMALL     = ("Segoe UI", 9)             # Texto pequeño
+FONT_TINY      = ("Segoe UI", 8)             # Texto muy pequeño (labels)
+FONT_NAV_TITLE = ("Segoe UI", 11, "bold")   # Botones del sidebar (título)
+FONT_NAV_DESC  = ("Segoe UI", 8)             # Botones del sidebar (descripción)
+FONT_MONO      = ("Consolas", 9)             # Consola de entrenamiento
+FONT_MONO_BIG  = ("Consolas", 22, "bold")   # PIN grande
+
+# Colores
+COLOR_DIVIDER  = "#E2E8F0"   # Línea divisoria sutil
+COLOR_SIDEBAR_HEADER = "#181825"   # Fondo del header del sidebar
 
 class UniversalMenuApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("HandTalk — Traductor de Señas Universal")
+        self.root.title("MakeSign — Traductor de Señas Universal")
         self.root.geometry("1366x768")
         self.root.minsize(1024, 700)
+        
+        # Ícono de la ventana
+        try:
+            icon_path = os.path.join(PROJECT_ROOT, "assets", "makesign.ico")
+            if os.path.exists(icon_path):
+                self.root.iconbitmap(icon_path)
+        except Exception:
+            pass
 
         # Paleta de colores profesional y moderna
         self.c_bg = "#F4F6F9"           # Fondo principal claro
@@ -130,6 +155,40 @@ class UniversalMenuApp:
         x = max(0, (sw - w) // 2)
         y = max(0, (sh - h) // 2)
         self.root.geometry(f"{w}x{h}+{x}+{y}")
+        
+    def create_page_header(self, parent, title: str, subtitle: str = None):
+        """
+        Crea un header de página consistente.
+        Retorna el frame contenedor para personalización posterior.
+        """
+        header = tk.Frame(parent, bg=self.c_bg)
+        header.pack(fill=tk.X, pady=(0, 18))
+
+        tk.Label(
+            header,
+            text=title,
+            font=FONT_TITLE,
+            bg=self.c_bg,
+            fg=self.c_text_primary,
+            anchor="w"
+        ).pack(anchor=tk.W)
+
+        if subtitle:
+            tk.Label(
+                header,
+                text=subtitle,
+                font=FONT_BODY,
+                bg=self.c_bg,
+                fg=self.c_text_secondary,
+                anchor="w"
+            ).pack(anchor=tk.W, pady=(4, 0))
+
+        # Línea divisoria sutil
+        tk.Frame(header, bg="#E2E8F0", height=1).pack(
+            fill=tk.X, pady=(12, 0)
+        )
+
+        return header
 
     # =========================================================================
     # LAYOUT GENERAL: SIDEBAR Y CONTENEDOR DINÁMICO    -------> aqui importacion y expo de data shete
@@ -142,15 +201,15 @@ class UniversalMenuApp:
         self.sidebar.pack_propagate(False)
 
         # Encabezado del Sidebar (Logo y Marca)
-        header_box = tk.Frame(self.sidebar, bg="#181825", height=100)
+        header_box = tk.Frame(self.sidebar,  bg=COLOR_SIDEBAR_HEADER, height=120)
         header_box.pack(fill=tk.X, side=tk.TOP)
         header_box.pack_propagate(False)
 
         lbl_logo = tk.Label(
             header_box,
-            text="HandTalk",
-            font=("Segoe UI", 18, "bold"),
-            bg="#181825",
+            text="MakeSign",
+            font=("Segoe UI", 22, "bold"),
+            bg=COLOR_SIDEBAR_HEADER,
             fg="#FFFFFF"
         )
         lbl_logo.pack(pady=(22, 2))
@@ -159,7 +218,7 @@ class UniversalMenuApp:
             header_box,
             text="Traductor IA Personalizado",
             font=("Segoe UI", 9),
-            bg="#181825",
+            bg=COLOR_SIDEBAR_HEADER,
             fg="#A5ADCB"
         )
         lbl_sublogo.pack()
@@ -182,7 +241,7 @@ class UniversalMenuApp:
             self.tab_buttons[tab_id] = btn
 
         # Pie del Sidebar (Selector de Cámara y Salir)
-        footer_box = tk.Frame(self.sidebar, bg="#181825", height=120)
+        footer_box = tk.Frame(self.sidebar, bg=COLOR_SIDEBAR_HEADER, height=120)
         footer_box.pack(fill=tk.X, side=tk.BOTTOM)
         footer_box.pack_propagate(False)
 
@@ -190,7 +249,7 @@ class UniversalMenuApp:
             footer_box,
             text="Cámara de Entrada:",
             font=("Segoe UI", 8),
-            bg="#181825",
+            bg=COLOR_SIDEBAR_HEADER,
             fg="#A5ADCB"
         ).pack(anchor=tk.W, padx=15, pady=(8, 2))
 
@@ -209,9 +268,9 @@ class UniversalMenuApp:
         # Botón Salir
         btn_exit = tk.Label(
             footer_box,
-            text="Salir de HandTalk",
+            text="Salir de MakeSign",
             font=("Segoe UI", 9, "bold"),
-            bg="#181825",
+            bg=COLOR_SIDEBAR_HEADER,
             fg="#E74C3C",
             cursor="hand2"
         )
@@ -233,13 +292,23 @@ class UniversalMenuApp:
         self.init_tab_traducir()
 
     def create_nav_button(self, parent, tab_id: str, title: str, desc: str):
-        card = tk.Frame(parent, bg=self.c_sidebar, cursor="hand2", padx=10, pady=10)
-        card.pack(fill=tk.X, pady=5)
+        # Contenedor del botón (con la barra indicadora)
+        container = tk.Frame(parent, bg=self.c_sidebar)
+        container.pack(fill=tk.X, pady=5)
+
+        # Barra indicadora (3px, invisible por defecto)
+        indicator = tk.Frame(container, bg=self.c_sidebar, width=3)
+        indicator.pack(side=tk.LEFT, fill=tk.Y)
+        indicator.pack_propagate(False)
+
+        # Card del botón
+        card = tk.Frame(container, bg=self.c_sidebar, cursor="hand2", padx=10, pady=10)
+        card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         lbl_title = tk.Label(
             card,
             text=title,
-            font=("Segoe UI", 11, "bold"),
+            font=FONT_NAV_TITLE,
             bg=self.c_sidebar,
             fg="#CAD3F5",
             anchor="w"
@@ -249,13 +318,14 @@ class UniversalMenuApp:
         lbl_desc = tk.Label(
             card,
             text=desc,
-            font=("Segoe UI", 8),
+            font=FONT_NAV_DESC,
             bg=self.c_sidebar,
             fg="#8087A2",
             anchor="w"
         )
         lbl_desc.pack(fill=tk.X)
 
+        # IMPORTANTE: NO incluir el container aquí
         widgets = [card, lbl_title, lbl_desc]
 
         def on_enter(e):
@@ -276,9 +346,15 @@ class UniversalMenuApp:
             w.bind("<Leave>", on_leave)
             w.bind("<Button-1>", on_click)
 
+        # También permitir click en el container para mejor UX
+        container.bind("<Button-1>", on_click)
+        container.bind("<Enter>", on_enter)
+        container.bind("<Leave>", on_leave)
+
         card.title_label = lbl_title
         card.desc_label = lbl_desc
         card.widgets = widgets
+        card.indicator = indicator
         return card
 
     def on_camera_selected(self, event=None):
@@ -314,19 +390,23 @@ class UniversalMenuApp:
         for f in self.tab_frames.values():
             f.pack_forget()
 
-        # 3. Actualizar estilo visual del Sidebar
+                # 3. Actualizar estilo visual del Sidebar
         for t_id, btn in self.tab_buttons.items():
             if t_id == new_tab:
                 for w in btn.widgets:
                     w.config(bg=self.c_sidebar_active)
                 btn.title_label.config(fg="#FFFFFF")
                 btn.desc_label.config(fg="#E0E7FF")
+                # Barra indicadora visible
+                btn.indicator.config(bg="#A29BFE")
             else:
                 for w in btn.widgets:
                     w.config(bg=self.c_sidebar)
                 btn.title_label.config(fg="#CAD3F5")
                 btn.desc_label.config(fg="#8087A2")
-
+                # Barra indicadora oculta
+                btn.indicator.config(bg=self.c_sidebar)
+                
         # 4. Mostrar pestaña nueva
         self.active_tab_name = new_tab
         target_frame = self.tab_frames.get(new_tab)
@@ -362,7 +442,7 @@ class UniversalMenuApp:
 
         tk.Label(
             banner,
-            text="Bienvenido a HandTalk",
+            text="Bienvenido a MakeSign",
             font=("Segoe UI", 20, "bold"),
             bg=self.c_card_bg,
             fg=self.c_accent
@@ -523,15 +603,12 @@ class UniversalMenuApp:
         frame = tk.Frame(self.content_container, bg=self.c_bg, padx=30, pady=25)
         self.tab_frames["entrenar"] = frame
 
-        # Título
-        lbl_title = tk.Label(
+        # Header consistente
+        self.create_page_header(
             frame,
-            text="Entrenamiento del Modelo IA de Señas",
-            font=("Segoe UI", 18, "bold"),
-            bg=self.c_bg,
-            fg=self.c_text_primary
+            "Entrenamiento del Modelo IA",
+            "Ajuste y entrenamiento del clasificador de señas"
         )
-        lbl_title.pack(anchor=tk.W, pady=(0, 15))
 
         # Contenedor Horizontal (Columna Izquierda: Opciones y Dataset / Columna Derecha: Consola)
         content_box = tk.Frame(frame, bg=self.c_bg)
@@ -665,7 +742,7 @@ class UniversalMenuApp:
             bg="#1E1E2E",
             fg="#A6ADC8",
             insertbackground="#FFFFFF",
-            font=("Consolas", 9),
+            font=FONT_MONO,
             height=15
         )
         self.train_console.pack(fill=tk.BOTH, expand=True)
@@ -812,15 +889,12 @@ class UniversalMenuApp:
         frame = tk.Frame(self.content_container, bg=self.c_bg, padx=30, pady=25)
         self.tab_frames["diccionario"] = frame
 
-        # Título
-        lbl_title = tk.Label(
+        # Header consistente
+        self.create_page_header(
             frame,
-            text="Diccionario Visual de Señas",
-            font=("Segoe UI", 18, "bold"),
-            bg=self.c_bg,
-            fg=self.c_text_primary
+            "Catálogo Visual de Señas",
+            "Bocetos y diccionario de las señas capturadas"
         )
-        lbl_title.pack(anchor=tk.W, pady=(0, 15))
 
         # Contenedor con Scroll
         container = tk.Frame(frame, bg=self.c_bg)
@@ -920,22 +994,12 @@ class UniversalMenuApp:
         frame = tk.Frame(self.content_container, bg=self.c_bg, padx=30, pady=25)
         self.tab_frames["paquetes"] = frame
 
-        # --- Título ---
-        tk.Label(
+        # Header consistente
+        self.create_page_header(
             frame,
-            text="Importar y Exportar Paquetes",
-            font=("Segoe UI", 18, "bold"),
-            bg=self.c_bg,
-            fg=self.c_text_primary
-        ).pack(anchor=tk.W, pady=(0, 4))
-
-        tk.Label(
-            frame,
-            text="Comparte tu dataset y modelo con otros equipos HandTalk",
-            font=("Segoe UI", 10),
-            bg=self.c_bg,
-            fg=self.c_text_secondary
-        ).pack(anchor=tk.W, pady=(0, 18))
+            "Importar y Exportar Paquetes",
+            "Comparte tu dataset y modelo con otros equipos MakeSign"
+        )
 
         # --- Panel de Estado Actual ---
         status_card = tk.Frame(frame, bg=self.c_card_bg, padx=20, pady=15)
@@ -1159,7 +1223,7 @@ class UniversalMenuApp:
 
         tk.Label(
             imp_card,
-            text="Carga un paquete .zip generado por otro equipo HandTalk",
+            text="Carga un paquete .zip generado por otro equipo MakeSign",
             font=("Segoe UI", 9),
             bg=self.c_card_bg,
             fg=self.c_text_secondary,
@@ -1269,12 +1333,12 @@ class UniversalMenuApp:
 
         # Nombre sugerido
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        nombre_sugerido = f"handtalk_pack_{timestamp}.zip"
+        nombre_sugerido = f"makesign_pack_{timestamp}.zip"
 
         ruta_destino = filedialog.asksaveasfilename(
-            title="Guardar paquete HandTalk",
+            title="Guardar paquete MakeSign",
             defaultextension=".zip",
-            filetypes=[("Paquete HandTalk", "*.zip"), ("Todos los archivos", "*.*")],
+            filetypes=[("Paquete MakeSign", "*.zip"), ("Todos los archivos", "*.*")],
             initialfile=nombre_sugerido,
         )
 
@@ -1393,8 +1457,8 @@ class UniversalMenuApp:
         from tkinter import filedialog
 
         ruta_zip = filedialog.askopenfilename(
-            title="Seleccionar paquete HandTalk",
-            filetypes=[("Paquete HandTalk", "*.zip"), ("Todos los archivos", "*.*")],
+            title="Seleccionar paquete MakeSign",
+            filetypes=[("Paquete MakeSign", "*.zip"), ("Todos los archivos", "*.*")],
         )
 
         if not ruta_zip:
@@ -1458,7 +1522,7 @@ class UniversalMenuApp:
         conflictos = info.get("conflictos", {})
 
         modal = tk.Toplevel(self.root)
-        modal.title("Importar paquete HandTalk")
+        modal.title("Importar paquete MakeSign")
         modal.geometry("620x680")
         modal.configure(bg=self.c_bg)
         modal.transient(self.root)
@@ -2287,7 +2351,7 @@ class UniversalMenuApp:
 
         # 3. Construir ventana Toplevel modal
         modal = tk.Toplevel(self.root)
-        modal.title("Visor Web Remoto — HandTalk")
+        modal.title("Visor Web Remoto — MakeSign")
         modal.geometry("520x640")
         modal.resizable(False, False)
         modal.configure(bg=self.c_bg)
@@ -2363,7 +2427,7 @@ class UniversalMenuApp:
         lbl_pin = tk.Label(
             pin_box,
             text=pin_str,
-            font=("Consolas", 22, "bold"),
+            font=FONT_MONO_BIG,
             bg="#F0F3F8",
             fg=self.c_text_primary
         )
