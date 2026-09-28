@@ -8,31 +8,24 @@ TRADUCTOR UNIFICADO: SEÑAS ESTÁTICAS (1 Y 2 MANOS) Y DINÁMICAS, CON FILTROS D
 Mejoras por modelo
 ------------------
 UNA MANO (estático)
-  - Decodificación restringida por dedos: si el modelo elige una clase que contradice los
-    dedos vistos (ej. "paz" con anular y meñique extendidos), se descarta y se toma la
-    siguiente clase consistente. El estado de cada dedo se mide con distancias 3D respecto
-    a la muñeca, así que funciona con la mano rotada o boca abajo.
   - Solo clasifica con la mano quieta (evita leer poses "de paso" al levantar la mano).
   - Descarta frames donde MediaPipe no está seguro de la mano (score bajo).
   - Smoother propio por modelo (los votos de 1 y 2 manos no se mezclan).
 
 DOS MANOS (estático)
   - Solo se usa cuando el nº de manos es estable varios frames y ambas son fiables.
-  - Reglas por mano ("left"/"right" según su posición en pantalla).
 
 DINÁMICO
-  - Confirmación directa (sin smoother) y TEMPRANA: la palabra sale mientras haces el
-    gesto si el modelo es muy seguro y coincide en evaluaciones consecutivas.
+  - Confirmación directa (sin smoother) y TEMPRANA (opcional): la palabra sale mientras
+    haces el gesto si el modelo es muy seguro y coincide en evaluaciones consecutivas.
   - Si la mano sale de cámara, se espera unos frames (parpadeo del tracker) y se clasifica.
   - Respuesta rápida al terminar el gesto y sin bloquear la siguiente seña.
-  - Las reglas de dedos también restringen las clases dinámicas (dedos dominantes del gesto).
   - ZONA MUERTA de movimiento: los micro-temblores de la mano no activan el modo dinámico.
     Solo se graba cuando hay movimiento REAL sostenido varios frames.
 """
 
 import argparse
 import json
-import math
 import os
 import time
 import unicodedata
@@ -49,30 +42,6 @@ from smoothing import PredictionSmoother
 
 MODELS_DIR = "./models"
 NOMBRE_VENTANA = "Traductor de Senas Personalizado"
-
-# ----------------------------------------------------------------------
-# REGLAS DE DEDOS (1 = extendido, 0 = doblado; dedo omitido = no importa)
-# Claves de dedo: thumb, index, middle, ring, pinky
-# Se comparan sin mayúsculas ni acentos. Se pueden añadir/sobrescribir en
-# models/sign_rules.json. Ejemplos:
-#   {"paz": {"index": 1, "middle": 1, "ring": 0, "pinky": 0}}
-#   {"aplauso": {"left": {"index": 1}, "right": {"index": 1}}}   # 2 manos, por mano
-# Una regla plana se aplica a TODAS las manos que usa el modelo.
-# En señas dinámicas se aplica a los dedos dominantes durante todo el gesto.
-# OJO: estas dos reglas son suposiciones sobre tus señas; verifícalas con --debug.
-# ----------------------------------------------------------------------
-REGLAS_DEDOS = {
-    "paz":  {"index": 1, "middle": 1, "ring": 0, "pinky": 0},
-    "hola": {"index": 1, "middle": 1, "ring": 1, "pinky": 1},
-}
-
-NOMBRES_DEDOS = ("thumb", "index", "middle", "ring", "pinky")
-# (índice de la punta, índice de la articulación PIP) por dedo
-DEDOS_LM = {"index": (8, 6), "middle": (12, 10), "ring": (16, 14), "pinky": (20, 18)}
-
-
-def _dist3(a, b):
-    return math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2)
 
 
 class CustomSignTranslator:
@@ -95,9 +64,6 @@ class CustomSignTranslator:
         self.model_2h_path = os.path.join(models_dir, "custom_sign_model_two_hands.pkl")
         self.encoder_2h_path = os.path.join(models_dir, "custom_sign_labels_two_hands.pkl")
         self.meta_2h_path = os.path.join(models_dir, "custom_sign_meta_two_hands.json")
-
-        # Reglas de dedos opcionales del usuario
-        self.rules_path = os.path.join(models_dir, "sign_rules.json")
 
         # Cargar modelos estáticos (Obligatorios)
         for p in (self.model_s_path, self.encoder_s_path, self.meta_s_path):
@@ -136,19 +102,6 @@ class CustomSignTranslator:
             print("[OK] Modelo de dos manos cargado.")
         else:
             print("[INFO] No hay modelo de dos manos; se usara solo el de una mano.")
-
-        # Reglas de dedos (por defecto + JSON opcional)
-        self.rules = {self._norm_label(k): v for k, v in REGLAS_DEDOS.items()}
-        if os.path.exists(self.rules_path):
-            try:
-                with open(self.rules_path, "r", encoding="utf-8") as f:
-                    extra = json.load(f)
-                for k, v in extra.items():
-                    self.rules[self._norm_label(k)] = v
-                print(f"[OK] Reglas de dedos cargadas de {self.rules_path}")
-            except Exception as e:
-                print(f"[WARN] No se pudo leer {self.rules_path}: {e}")
-        self._reportar_reglas()
 
         self.max_hands = max_hands
         self.rotate_invariant = rotate_invariant
@@ -191,13 +144,7 @@ class CustomSignTranslator:
         self.HAND_SCORE_MIN = 0.40         # score mínimo de MediaPipe por mano
         self.HAND_COUNT_STABLE_FRAMES = 4  # frames estables antes de cambiar 1h <-> 2h
         self.STATIC_COOLDOWN = 12          # frames sin estático tras detectar movimiento
-        self.MIN_PROB_CORREGIDA = 0.30     # prob. mínima para aceptar clase corregida por reglas
         self.IGNORE_LABELS = {"reposo", "neutral", "neutro", "ninguna", "nada", "none", "idle"}
-
-        # --- Estado de dedos: razón dist(punta, muñeca)/dist(PIP, muñeca) ---
-        #   > EXT_RATIO extendido | < CURL_RATIO doblado | en medio ambiguo (no se exige)
-        self.EXT_RATIO = 1.25
-        self.CURL_RATIO = 1.00
 
         # --- Dinámico ---
         self.FRAMES_QUIETO_PARA_FINALIZAR = 5   # ~0.17 s quieto para dar por terminado
@@ -210,7 +157,7 @@ class CustomSignTranslator:
         self.confirmed_persistence = 15         # frames que se mantiene la palabra en pantalla
 
         # Confirmación TEMPRANA: la palabra sale mientras haces el gesto
-        self.EARLY_CONFIRM = False               # pon False para confirmar solo al terminar
+        self.EARLY_CONFIRM = False               # pon True para confirmar mientras haces el gesto
         self.EARLY_MIN_FRAMES = 12
         self.EARLY_EVAL_EVERY = 3               # evalúa cada N frames de movimiento
         self.EARLY_CONF_MIN = 0.90              # exigente: evita disparos falsos
@@ -218,7 +165,6 @@ class CustomSignTranslator:
 
         # --- Estado dinámico ---
         self.dyn_buffer = []
-        self.dyn_estados = []
         self.is_recording_dyn = False
         self.still_frames_count = 0
         self.recording_start_time = None
@@ -244,11 +190,9 @@ class CustomSignTranslator:
         self.last_confirmed_conf = 0.0
         self.persistence_counter = 0
 
-        # --- Depuración / overlay ---
+        # --- Overlay ---
         self.current_source = "1h"
         self._warned_2h_dim = False
-        self.debug_estados = []
-        self._ultimo_corregido = None
 
     # ------------------------------------------------------------------
     # Utilidades generales
@@ -258,19 +202,6 @@ class CustomSignTranslator:
         s = unicodedata.normalize("NFD", str(label))
         s = "".join(c for c in s if unicodedata.category(c) != "Mn")
         return s.lower().strip()
-
-    def _reportar_reglas(self):
-        clases = set()
-        for enc in (self.encoder_s, self.encoder_d, self.encoder_2h):
-            if enc is not None and hasattr(enc, "classes_"):
-                clases |= {self._norm_label(c) for c in enc.classes_}
-        if not clases:
-            return
-        con_regla = sorted(c for c in clases if c in self.rules)
-        sin_clase = sorted(k for k in self.rules if k not in clases)
-        print(f"[INFO] Reglas de dedos activas para: {con_regla if con_regla else 'ninguna'}")
-        if sin_clase:
-            print(f"[WARN] Reglas sin clase en ningun modelo (revisa nombres): {sin_clase}")
 
     def register_callback(self, callback):
         self._callbacks.append(callback)
@@ -286,6 +217,12 @@ class CustomSignTranslator:
     def _reset_smoothers(self):
         for sm in self.smoothers.values():
             sm.reset()
+
+    @staticmethod
+    def _decodificar(probs, encoder):
+        """Clase más probable del modelo. Devuelve (label, prob)."""
+        idx = int(np.argmax(probs))
+        return encoder.inverse_transform([idx])[0], float(probs[idx])
 
     # ------------------------------------------------------------------
     # Manos y movimiento
@@ -362,80 +299,10 @@ class CustomSignTranslator:
         self.stable_count = 0
 
     # ------------------------------------------------------------------
-    # Estado de dedos y reglas (independiente de la orientación de la mano)
-    # ------------------------------------------------------------------
-    def _estados_dedos(self, hand):
-        """{dedo: 1 extendido | 0 doblado | None ambiguo} con distancias 3D a la muñeca."""
-        lm = hand.landmark
-        wrist = lm[0]
-        est = {}
-        for nombre, (tip, pip) in DEDOS_LM.items():
-            r = _dist3(lm[tip], wrist) / max(_dist3(lm[pip], wrist), 1e-6)
-            est[nombre] = 1 if r > self.EXT_RATIO else (0 if r < self.CURL_RATIO else None)
-
-        # Pulgar: punta vs. IP medidos desde la base del meñique (landmark 17)
-        base = lm[17]
-        r = _dist3(lm[4], base) / max(_dist3(lm[3], base), 1e-6)
-        est["thumb"] = 1 if r > self.EXT_RATIO else (0 if r < self.CURL_RATIO else None)
-        return est
-
-    def _consenso_estados(self, lista):
-        """Dedos dominantes a lo largo de un gesto (None si no hay consenso claro)."""
-        res = {}
-        for d in NOMBRES_DEDOS:
-            vals = [e[d] for e in lista if e.get(d) is not None]
-            if len(vals) < max(3, int(0.3 * len(lista))):
-                res[d] = None
-                continue
-            frac = sum(vals) / len(vals)
-            res[d] = 1 if frac >= 0.7 else (0 if frac <= 0.3 else None)
-        return res
-
-    def _cumple_regla(self, label, estados):
-        """¿Los dedos observados son consistentes con la regla de esta seña?"""
-        regla = self.rules.get(self._norm_label(label))
-        if not regla:
-            return True  # sin regla: no se restringe
-
-        if "left" in regla or "right" in regla:
-            por_mano = [regla.get("left"), regla.get("right")]
-        else:
-            por_mano = [regla] * len(estados)
-
-        for req, est in zip(por_mano, estados):
-            if not req:
-                continue
-            for dedo, esperado in req.items():
-                visto = est.get(dedo)
-                if visto is not None and visto != esperado:
-                    return False
-        return True
-
-    def _decodificar_restringido(self, probs, encoder, estados):
-        """
-        Clase más probable CONSISTENTE con los dedos observados.
-        Devuelve (label, prob) o (None, 0.0).
-        """
-        orden = np.argsort(probs)[::-1]
-        for pos, idx in enumerate(orden[:5]):
-            label = encoder.inverse_transform([idx])[0]
-            if self._cumple_regla(label, estados):
-                if pos > 0:
-                    top = encoder.inverse_transform([orden[0]])[0]
-                    self._ultimo_corregido = f"{top}->{label}"
-                    if self.debug:
-                        print(f"[REGLA] '{top}' contradice los dedos; se usa '{label}' "
-                              f"({probs[idx]:.2f})")
-                    if float(probs[idx]) < self.MIN_PROB_CORREGIDA:
-                        return None, 0.0
-                return label, float(probs[idx])
-        return None, 0.0
-
-    # ------------------------------------------------------------------
     # Estático (1 mano / 2 manos)
     # ------------------------------------------------------------------
-    def _clasificar_estatico(self, results, estados, features_1h):
-        """Devuelve (label, confianza, source) con decodificación restringida."""
+    def _clasificar_estatico(self, results, features_1h):
+        """Devuelve (label, confianza, source)."""
         usar_2h = (
             len(results.multi_hand_landmarks) == 2
             and self.model_2h is not None
@@ -459,19 +326,17 @@ class CustomSignTranslator:
 
         if usar_2h:
             model, encoder, source = self.model_2h, self.encoder_2h, "2h"
-            estados_usados = estados[:2]
         else:
             feats = features_1h
             model, encoder, source = self.model_s, self.encoder_s, "1h"
-            estados_usados = estados[:1]
 
         probs = model.predict_proba([feats])[0]
-        label, conf = self._decodificar_restringido(probs, encoder, estados_usados)
+        label, conf = self._decodificar(probs, encoder)
         return label, conf, source
 
-    def _paso_estatico(self, results, estados, features):
+    def _paso_estatico(self, results, features):
         """Clasifica, ignora reposo y vota con el smoother del modelo correspondiente."""
-        label_s, conf_s, source = self._clasificar_estatico(results, estados, features)
+        label_s, conf_s, source = self._clasificar_estatico(results, features)
         self.current_source = source
 
         # El smoother del otro modelo no debe conservar votos viejos
@@ -494,7 +359,6 @@ class CustomSignTranslator:
     def _reset_dinamico(self):
         self.is_recording_dyn = False
         self.dyn_buffer = []
-        self.dyn_estados = []
         self.still_frames_count = 0
         self.recording_start_time = None
         self.dyn_confirmed_early = False
@@ -502,20 +366,17 @@ class CustomSignTranslator:
         self.early_hits = 0
         self.dyn_frames_since_eval = 0
 
-    def _push_dinamico(self, features, estado):
+    def _push_dinamico(self, features):
         self.dyn_buffer.append(features)
-        self.dyn_estados.append(estado)
         if len(self.dyn_buffer) > 60:
             self.dyn_buffer.pop(0)
-            self.dyn_estados.pop(0)
 
     def _clasificar_secuencia(self):
-        """Clasifica la secuencia acumulada con reglas de dedos. -> (label, conf)."""
+        """Clasifica la secuencia acumulada. -> (label, conf)."""
         pooled = temporal_pooling.pool_sequence(self.dyn_buffer)
         probs = self.model_d.predict_proba([pooled])[0]
-        consenso = self._consenso_estados(self.dyn_estados)
-        label, conf = self._decodificar_restringido(probs, self.encoder_d, [consenso])
-        if label is not None and self._norm_label(label) in self.IGNORE_LABELS:
+        label, conf = self._decodificar(probs, self.encoder_d)
+        if self._norm_label(label) in self.IGNORE_LABELS:
             return None, 0.0
         return label, conf
 
@@ -590,7 +451,7 @@ class CustomSignTranslator:
         self._reset_dinamico()
         return label_d, conf_d, confirmed
 
-    def _actualizar_dinamico(self, features, estado, mov):
+    def _actualizar_dinamico(self, features, mov):
         """
         Segmentador de gestos CON ZONA MUERTA.
 
@@ -620,7 +481,7 @@ class CustomSignTranslator:
             self.is_recording_dyn = True
             self.recording_start_time = time.time()
             self.still_frames_count = 0
-            self._push_dinamico(features, estado)
+            self._push_dinamico(features)
             return self._confirmacion_temprana()
 
         # Ya estamos grabando: seguir acumulando
@@ -629,7 +490,7 @@ class CustomSignTranslator:
         else:
             self.still_frames_count += 1
 
-        self._push_dinamico(features, estado)
+        self._push_dinamico(features)
 
         # Seguridad: grabación demasiado larga
         if (self.recording_start_time
@@ -655,7 +516,6 @@ class CustomSignTranslator:
     # ------------------------------------------------------------------
     def _sin_manos(self, results):
         self.lost_frames += 1
-        self.debug_estados = []
 
         if self.is_recording_dyn and self.mode != "estatico":
             # El tracker pierde la mano un instante en gestos rápidos: esperar unos frames
@@ -688,8 +548,6 @@ class CustomSignTranslator:
         self.lost_frames = 0
 
         manos = self._manos_ordenadas(results)
-        estados = [self._estados_dedos(h) for h in manos]
-        self.debug_estados = estados
         conteo_estable = self._actualizar_conteo_manos(len(manos))
         fiables = self._manos_fiables(results)
 
@@ -713,13 +571,12 @@ class CustomSignTranslator:
                 self._reset_smoothers()
             if not estatico_permitido():
                 return None, 0.0, results, None
-            label_s, conf_s, confirmed = self._paso_estatico(results, estados, features)
+            label_s, conf_s, confirmed = self._paso_estatico(results, features)
             return label_s, conf_s, results, confirmed
 
         # 2. MODO DINÁMICO: ignoramos las predicciones estáticas
         if self.mode == "dinamico":
-            listo, label_d, conf_d, confirmed = self._actualizar_dinamico(
-                features, estados[0], mov)
+            listo, label_d, conf_d, confirmed = self._actualizar_dinamico(features, mov)
             if listo:
                 return label_d, conf_d, results, confirmed
             return None, 0.0, results, None
@@ -730,7 +587,7 @@ class CustomSignTranslator:
             self.static_cooldown = self.STATIC_COOLDOWN
             self._reset_smoothers()
 
-        listo, label_d, conf_d, confirmed = self._actualizar_dinamico(features, estados[0], mov)
+        listo, label_d, conf_d, confirmed = self._actualizar_dinamico(features, mov)
         if listo:
             return label_d, conf_d, results, confirmed
 
@@ -743,7 +600,7 @@ class CustomSignTranslator:
         if not estatico_permitido():
             return None, 0.0, results, None
 
-        label_s, conf_s, confirmed = self._paso_estatico(results, estados, features)
+        label_s, conf_s, confirmed = self._paso_estatico(results, features)
         return label_s, conf_s, results, confirmed
 
     # ------------------------------------------------------------------
@@ -790,19 +647,6 @@ class CustomSignTranslator:
                 f"Manos: {n_manos} | Modelo: {modelo} | mov={self.mov_ema:.3f} (umbral {self.MOV_THRESHOLD})",
                 (30, h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 200, 0), 2)
 
-            if self.debug:
-                # Estado de cada dedo: 1 extendido, 0 doblado, ? ambiguo
-                for i, est in enumerate(self.debug_estados[:2]):
-                    txt = " ".join(
-                        f"{nombre[0].upper()}={'?' if est[nombre] is None else est[nombre]}"
-                        for nombre in NOMBRES_DEDOS
-                    )
-                    cv2.putText(frame, f"Mano{i+1} (izq->der) {txt}", (30, h - 50 - 28 * i),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
-                if self._ultimo_corregido:
-                    cv2.putText(frame, f"Corregido por reglas: {self._ultimo_corregido}",
-                                (30, h - 110), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 120, 255), 2)
-
         return frame
 
     def run_webcam(self, camera_id=None):
@@ -815,7 +659,7 @@ class CustomSignTranslator:
         print(f"[OK] Camara {resolved_id} abierta. Presiona Q para salir.")
         try:
             while True:
-                ret, frame = cap.read()  
+                ret, frame = cap.read()
                 if not ret:
                     break
                 frame = cv2.flip(frame, 1)
@@ -837,7 +681,7 @@ def main():
     parser.add_argument("--models-dir", default=MODELS_DIR)
     parser.add_argument("--mode", choices=["auto", "estatico", "dinamico"], default="auto")
     parser.add_argument("--debug", action="store_true",
-                        help="Muestra el estado de cada dedo y las correcciones por reglas")
+                        help="Imprime en consola las evaluaciones de la confirmación temprana")
     args = parser.parse_args()
     translator = CustomSignTranslator(models_dir=args.models_dir, mode=args.mode,
                                       debug=args.debug)
