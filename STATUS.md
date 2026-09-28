@@ -58,7 +58,15 @@ Este documento sirve como registro rápido de las tareas completadas y el progre
 - [ ] **Documentación de Usuario**: Crear guía de uso para la captura autónoma (gesto de puño) y el entrenamiento de señas multimanuales.
 - [ ] **Auditoría de Seguridad**: Pruebas de estrés sobre el Rate Limiting y validación de la neutralización de payloads XSS en el visor.
 
+### Culminación de Fase 3 (Validación Final)
+- [ ] **Criterio 1: Cámara Virtual Operativa**: Validar envío de video con texto a Meet/Teams a 25-30 FPS.
+- [ ] **Criterio 2: Tolerancia a Fallos**: Confirmar que la app inicia normalmente sin el driver de cámara virtual instalado.
+- [ ] **Criterio 3: Acceso Web Protegido**: Verificar que el visor sea inaccesible sin QR o PIN válido.
+- [ ] **Criterio 4: Rate Limiting**: Validar recepción de HTTP 429 tras 5 intentos fallidos en login.
+- [ ] **Criterio 5: Protección XSS**: Comprobar que las cabeceras CSP estén presentes y los payloads sean neutralizados.
+- [ ] **Criterio 6: Conectividad Host**: Asegurar que el host mantenga internet activo mientras sirve el visor.
+
 ---
 
-**Última actualización**: 2026-09-25
-**Estado General**: 🟢 Fase 1 Finalizada | 🟢 Fase 2 (Visor Web) Finalizada | 🟢 Integración de Ramas Completada | 🟢 Soporte Multimanual Implementado | 🟡 Fase 3 en etapa de Validación Final.
+**Última actualización**: 2026-09-27
+**Estado General**: 🟢 Fase 1 Finalizada | 🟢 Fase 2 (Visor Web) Finalizada | 🟢 Integración de Ramas Completada | 🟢 Soporte Multimanual Implementado | 🟢 Diccionario Visual Integrado | 🟡 Fase 3 en etapa de Validación Final.

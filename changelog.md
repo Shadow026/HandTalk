@@ -2,6 +2,21 @@
 
 Este archivo registra los cambios, mejoras y correcciones implementadas en el proyecto.
 
+## [2026-09-27] - Integración de Diccionario Visual y Limpieza de UI
+
+### 🚀 Nuevas Funcionalidades
+- **Diccionario Visual de Señas**:
+    - Implementación de `inicio/sketch_generator.py` para generar bocetos automáticos basados en los landmarks promediados del dataset.
+    - Integración de la pestaña "Catálogo Visual" en `inicio/menu_universal.py` y `inicio/diccionario_gui.py` para visualizar la librería de señas capturadas.
+    - Automatización de la generación de imágenes PNG en la carpeta `sketches/` al refrescar la vista.
+- **Optimización de Repositorio**:
+    - Configuración de `.gitignore` para excluir la carpeta `sketches/`, evitando el rastreo de archivos binarios generados automáticamente.
+
+### 🛠️ Mejoras de UI/UX
+- **Simplificación de Interfaz**: Eliminación de los botones de rotación manual de bocetos para priorizar una representación fiel y automática de los datos capturados, eliminando errores de callback en la GUI.
+
+---
+
 ## [2026-09-25] - Soporte Multimanual y Optimización de Captura
 
 ### 🚀 Nuevas Funcionalidades

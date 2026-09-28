@@ -22,6 +22,7 @@ __pycache__/
 models/*.pkl
 models/*.json
 custom_dataset/*.json
+sketches/
 
 # IDEs y OS
 .vscode/

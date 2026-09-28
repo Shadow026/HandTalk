@@ -172,6 +172,7 @@ class UniversalMenuApp:
             ("inicio", "Inicio", "Panel general y diagnóstico"),
             ("capturar", "Capturar Señas", "Grabación de gestos"),
             ("entrenar", "Entrenar Modelo", "Ajuste del clasificador"),
+            ("diccionario", "Catálogo Visual", "Bocetos y diccionario de señas"),
             ("paquetes", "Paquetes", "Importa y exporta dataset"),
             ("traducir", "Traducir y Visor", "Inferencia en vivo y QR"),
         ]
@@ -227,6 +228,7 @@ class UniversalMenuApp:
         self.init_tab_inicio()
         self.init_tab_capturar()
         self.init_tab_entrenar()
+        self.init_tab_diccionario()
         self.init_tab_paquetes()
         self.init_tab_traducir()
 
@@ -339,6 +341,8 @@ class UniversalMenuApp:
                 self.capture_gui_instance.update_words_list()
         elif new_tab == "entrenar":
             self.refresh_tab_entrenar_data()
+        elif new_tab == "diccionario":
+            self.refresh_tab_diccionario_data()
         elif new_tab == "paquetes":
             self.refresh_tab_paquetes_data()
         elif new_tab == "traducir":
@@ -801,7 +805,115 @@ class UniversalMenuApp:
 
         self.root.after(200, finish)
         # =========================================================================
-    # PESTAÑA 4: PAQUETES (IMPORTAR / EXPORTAR)
+    # PESTAÑA: DICCIONARIO VISUAL (Bocetos)
+    # =========================================================================
+
+    def init_tab_diccionario(self):
+        frame = tk.Frame(self.content_container, bg=self.c_bg, padx=30, pady=25)
+        self.tab_frames["diccionario"] = frame
+
+        # Título
+        lbl_title = tk.Label(
+            frame,
+            text="Diccionario Visual de Señas",
+            font=("Segoe UI", 18, "bold"),
+            bg=self.c_bg,
+            fg=self.c_text_primary
+        )
+        lbl_title.pack(anchor=tk.W, pady=(0, 15))
+
+        # Contenedor con Scroll
+        container = tk.Frame(frame, bg=self.c_bg)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        canvas = tk.Canvas(container, bg=self.c_bg, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        self.dict_grid_frame = tk.Frame(canvas, bg=self.c_bg)
+
+        self.dict_grid_frame.bind(
+            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=self.dict_grid_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Botón Actualizar
+        btn_refresh = tk.Button(
+            frame, text="🔄 Actualizar Catálogo",
+            font=("Segoe UI", 10, "bold"),
+            bg=self.c_sidebar_active, fg="#FFFFFF",
+            relief=tk.FLAT, padx=15, pady=5, cursor="hand2",
+            command=self.refresh_tab_diccionario_data
+        )
+        btn_refresh.pack(anchor=tk.E, pady=(0, 10))
+
+        # Carga inicial
+        self.refresh_tab_diccionario_data()
+
+    def refresh_tab_diccionario_data(self):
+        import dataset_manager
+        import sketch_generator
+        from PIL import Image, ImageTk
+
+        # Limpiar cuadrícula
+        for widget in self.dict_grid_frame.winfo_children():
+            widget.destroy()
+
+        # Referencias para evitar Garbage Collection
+        self.dict_photo_refs = []
+
+        words = dataset_manager.get_existing_words()
+        if not words:
+            tk.Label(
+                self.dict_grid_frame,
+                text="No hay señas capturadas aún.",
+                bg=self.c_bg, fg=self.c_text_secondary,
+                font=("Segoe UI", 12)
+            ).pack(pady=50)
+            return
+
+        # Generar bocetos
+        sketches = sketch_generator.generate_all_sketches(
+            dataset_manager.DEFAULT_DATASET_DIR,
+            sketch_generator.DEFAULT_SKETCH_DIR,
+            size=250
+        )
+
+        cols = 3
+        for idx, word in enumerate(words):
+            row, col = divmod(idx, cols)
+
+            # Tarjeta de palabra
+            card = tk.Frame(self.dict_grid_frame, bg=self.c_card_bg,
+                            padx=10, pady=10, relief=tk.RIDGE, bd=1)
+            card.grid(row=row, column=col, padx=12, pady=12, sticky="n")
+
+            # Imagen del boceto
+            img_lbl = tk.Label(card, bg=self.c_card_bg)
+            img_lbl.pack()
+
+            sketch_path = sketches.get(word)
+            if sketch_path and os.path.exists(sketch_path):
+                pil_img = Image.open(sketch_path)
+                photo = ImageTk.PhotoImage(pil_img)
+                self.dict_photo_refs.append(photo)
+                img_lbl.config(image=photo)
+                img_lbl.image = photo
+            else:
+                img_lbl.config(text="(Sin boceto)", fg=self.c_text_secondary)
+
+            # Nombre y muestras
+            n_muestras = dataset_manager.count_samples_for_word(word)
+            tk.Label(
+                card, text=f"{word}\n({n_muestras} muestras)",
+                font=("Segoe UI", 10, "bold"),
+                bg=self.c_card_bg, fg=self.c_text_primary,
+                justify="center"
+            ).pack(pady=5)
+
     # =========================================================================
 
     def init_tab_paquetes(self):
