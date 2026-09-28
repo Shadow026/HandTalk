@@ -129,7 +129,7 @@ class CustomSignTranslator:
         # --- Movimiento ---
         # Desplazamiento por frame (normalizado y suavizado). Si las dinámicas no se activan,
         # BAJA MOV_THRESHOLD; si se activan solas con la mano quieta, SÚBELO.
-        self.MOV_THRESHOLD = 0.012
+        self.MOV_THRESHOLD = 0.01 #0.012 o usar #0.015 depede que tanto movimiento se tome
         # Zona muerta: distancias menores a esto se consideran ruido/temblor (no movimiento).
         # Súbelo si con la mano "quieta" igual se activa el modo dinámico.
         self.MOV_NOISE_FLOOR = 0.008

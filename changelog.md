@@ -1,76 +1,246 @@
-# 📝 Changelog — HandTalk
+# Changelog — Traductor de señas personalizado
 
-Este archivo registra los cambios, mejoras y correcciones implementadas en el proyecto.
+Fecha: 2026-09-28
 
-## [2026-09-27] - Integración de Diccionario Visual y Limpieza de UI
+Este changelog cubre dos archivos:
 
-### 🚀 Nuevas Funcionalidades
-- **Diccionario Visual de Señas**:
-    - Implementación de `inicio/sketch_generator.py` para generar bocetos automáticos basados en los landmarks promediados del dataset.
-    - Integración de la pestaña "Catálogo Visual" en `inicio/menu_universal.py` y `inicio/diccionario_gui.py` para visualizar la librería de señas capturadas.
-    - Automatización de la generación de imágenes PNG en la carpeta `sketches/` al refrescar la vista.
-- **Optimización de Repositorio**:
-    - Configuración de `.gitignore` para excluir la carpeta `sketches/`, evitando el rastreo de archivos binarios generados automáticamente.
-
-### 🛠️ Mejoras de UI/UX
-- **Simplificación de Interfaz**: Eliminación de los botones de rotación manual de bocetos para priorizar una representación fiel y automática de los datos capturados, eliminando errores de callback en la GUI.
+1. `realtime_translator.py`: versión **actual** comparada con la **anterior**.
+2. `gui_captura.py`: cambios de esta sesión (captura dinámica con una sola mano).
 
 ---
 
-## [2026-09-25] - Soporte Multimanual y Optimización de Captura
+## 1. `realtime_translator.py`
 
-### 🚀 Nuevas Funcionalidades
-- **Soporte para Señas a Dos Manos**:
-    - Implementación de extracción de características polimórfica en `hand_features.py` y `realtime_translator.py` para soportar vectores de una y dos manos.
-    - Creación de modelos independientes para señas de dos manos (`custom_sign_model_two_hands.pkl`).
-    - Actualización de la GUI de captura para permitir el registro de muestras con ambas manos.
-- **Gestión de Dataset**:
-    - Implementación de funciones para renombrar y eliminar palabras/señas del dataset (`dataset_manager.py`).
-    - Integración de botones de gestión en la pestaña de Entrenamiento con diálogos de confirmación y avisos de re-entrenamiento.
-- **Sistema de Captura Autónoma**:
-    - **Trigger por Gesto**: Implementación de activación automática mediante la detección de "puño cerrado" para permitir la captura sin asistencia externa.
-    - **Temporizador de Captura**: Adición de un botón de cuenta regresiva (5s) para facilitar la posición de las manos antes de la toma de muestra.
-- **Mejoras de UI/UX**:
-    - Ajuste de resolución de ventana (1024x680) y límites mínimos para evitar desbordamientos en pantallas de 1366x768px.
-    - Integración de funciones de "Renombrar" y "Eliminar" palabras directamente desde la pestaña de Entrenamiento.
+### Resumen
 
-### 🐛 Correcciones de Errores
-- **Estabilización de Inferencia Dinámica**:
-    - Solución al problema del "parpadeo" mediante la implementación de un sistema de histéresis (persistencia de confirmación).
-    - Optimización de los umbrales de movimiento (`MOV_THRESHOLD`) y quietud (`FRAMES_QUIETO_PARA_FINALIZAR`) para reducir falsos negativos.
-- **Corrección de Entrenamiento (NumPy)**:
-    - Solucionado el error de `inhomogeneous shape` al entrenar datasets mixtos (1 y 2 manos) mediante la separación de muestras por dimensionalidad en `train_classifier.py` y `dataset_manager.py`.
-- **Estabilidad de la GUI**:
-    - Corrección de `NameError: name 'np' is not defined` en el hilo de captura.
-    - Actualización de `max_num_hands` a 2 en el traductor para habilitar la visualización de landmarks en ambas manos.
+La versión anterior clasificaba casi todo por frame con el modelo estático, usaba un solo smoother compartido y detectaba movimiento con un umbral simple sobre la muñeca. La versión actual añade **filtros de precisión** para reducir falsos positivos:
+
+- Clasificación estática solo con la mano quieta.
+- Filtro por score de MediaPipe y conteo de manos estable.
+- Zona muerta de movimiento para ignorar temblores.
+- Un pipeline dinámico separado y más robusto.
+
+La decisión de clase es directa: el modelo elige la clase más probable, sin correcciones externas.
+
+### Nuevo
+
+#### Estático más estricto
+
+- **Solo clasifica con la mano quieta**: `STATIC_STILL_FRAMES = 4`. Evita leer poses "de paso" al levantar la mano.
+- **Filtro de score de MediaPipe** (`HAND_SCORE_MIN = 0.40`): se descartan frames donde el tracker no está seguro de la mano.
+- **Conteo de manos estable**: hay que sostener el mismo número de manos `HAND_COUNT_STABLE_FRAMES = 4` frames antes de cambiar entre modelo de 1 y 2 manos.
+- **Orden estable de manos**: se ordenan por la x de la muñeca (izquierda → derecha).
+- **Un smoother por modelo** (`"1h"` y `"2h"`). Al cambiar de modelo se resetea el otro para que los votos no se mezclen.
+- **Etiquetas ignoradas** (`reposo`, `neutral`, `neutro`, `ninguna`, `nada`, `none`, `idle`): no se emiten y limpian los votos.
+- **Verificación de dimensiones del modelo de 2 manos** (`n_features_in_`): si no coincide con las features generadas, avisa una sola vez y cae al modelo de 1 mano.
+
+#### Movimiento con zona muerta
+
+- Movimiento medido sobre el **centro de todas las muñecas visibles**, suavizado con EMA.
+- **Zona muerta** `MOV_NOISE_FLOOR = 0.008`: los micro-temblores no cuentan. El EMA solo acumula el exceso sobre ese piso y decae rápido cuando no hay movimiento real.
+- Si **cambia el número de manos** (entra o sale una), el salto artificial del centro no cuenta como movimiento.
+- **Racha de movimiento**: la grabación dinámica solo arranca con `MOV_FRAMES_TO_START = 3` frames consecutivos de movimiento real.
+
+#### Pipeline dinámico rehecho
+
+- Separado en métodos (`_actualizar_dinamico`, `_confirmar_dinamico`, `_clasificar_secuencia`, `_emitir_dinamico`, `_reset_dinamico`).
+- **Sin smoother**: confirmación directa con `DYN_CONF_MIN = 0.80`.
+- **Secuencias mínimas**: menos de `MIN_DYN_FRAMES = 8` frames se descartan como ruido.
+- **Tolerancia a pérdida de mano** (`LOST_FRAMES_TO_FINALIZE = 4`): si la mano sale de cámara mientras se graba, se espera unos frames por el parpadeo del tracker y luego se clasifica. Antes se descartaba todo.
+- **Confirmación temprana** (`EARLY_CONFIRM`): puede confirmar la palabra mientras haces el gesto si el modelo es muy seguro (`EARLY_CONF_MIN = 0.90`) y coincide en `EARLY_HITS_REQUIRED = 2` evaluaciones consecutivas. **Está en `False` por defecto**.
+- **Cooldowns** para que el estático no "adivine" tras un gesto:
+  - `POST_DYN_COOLDOWN_OK = 18` frames tras dinámica confirmada.
+  - `POST_DYN_COOLDOWN_FAIL = 8` frames tras dinámica fallida.
+  - `STATIC_COOLDOWN = 12` frames tras detectar movimiento en modo auto.
+- `MAX_DYN_SECONDS = 4.0` ahora es un parámetro (antes estaba fijo en el código).
+
+#### Interfaz y depuración
+
+- Nuevos argumentos de línea de comandos:
+  - `--mode {auto,estatico,dinamico}`. Antes `main()` no pasaba el modo, así que siempre corría en `auto`.
+  - `--debug`: imprime en consola las evaluaciones de la confirmación temprana.
+- Overlay:
+  - Línea inferior con número de manos, modelo en uso y `mov` con su umbral.
+  - Contador de frames en "Capturando movimiento...".
+- Al iniciar imprime si se cargó el modelo dinámico o el de dos manos.
+
+### Cambiado
+
+| Parámetro / comportamiento | Anterior | Actual |
+|---|---|---|
+| `MOV_THRESHOLD` | 0.05 (distancia cruda por frame) | 0.012 (sobre movimiento suavizado con zona muerta) |
+| `FRAMES_QUIETO_PARA_FINALIZAR` | 10 | 5 |
+| `confirmed_persistence` | 30 frames | 15 frames |
+| Confianza al terminar gesto dinámico | Smoother (umbral 0.60 en modo dinámico) | `DYN_CONF_MIN = 0.80`, sin smoother |
+| Modo `auto` con movimiento | Clasificaba estático en cada frame mientras había movimiento | Silencia el estático mientras hay movimiento, grabación o cooldown |
+| Dos manos | Ramal aparte, antes de revisar el modo; usaba el smoother compartido | Solo en el flujo estático, respeta `--mode` y usa su propio smoother |
+| Movimiento | Solo la muñeca de la primera mano | Centro de todas las muñecas, con EMA |
+| Mano sale de cámara mientras graba | Se descartaba la grabación | Espera `LOST_FRAMES_TO_FINALIZE` frames y luego clasifica |
+| Confianza mostrada de la palabra persistente | La del frame actual | La confianza con la que se confirmó |
+| Archivos `meta` (`.json`) de modelos dinámico / 2 manos | Obligatorios si existía el modelo (fallaba si faltaban) | Opcionales |
+
+### Retirado: reglas de dedos
+
+Durante esta sesión se probó una capa de **reglas de dedos** (corregir la clase del modelo según qué dedos estaban extendidos o doblados). Se **quitó** porque solo había reglas para 2 palabras y no compensaba la complejidad. Se eliminó:
+
+- `REGLAS_DEDOS`, la lectura opcional de `models/sign_rules.json` y el aviso de reglas sin clase.
+- La medición del estado de cada dedo y el consenso de dedos para gestos dinámicos.
+- El decodificador restringido (revisaba las 5 clases más probables). Ahora se usa `_decodificar`: clase más probable del modelo.
+- Los parámetros `EXT_RATIO`, `CURL_RATIO` y `MIN_PROB_CORREGIDA`.
+- En el overlay con `--debug`: el estado de los dedos y el texto "Corregido por reglas".
+
+`models/sign_rules.json` ya no se lee. Si existe, se ignora.
+
+### Ojo (pendientes y advertencias)
+
+- `MOV_FRAMES_TO_STOP = 3` está declarado pero **no se usa** en el código actual. La parada del gesto se controla con `FRAMES_QUIETO_PARA_FINALIZAR`.
+- Sin las reglas, si el modelo confunde dos señas parecidas no hay nada que lo corrija. La mejora estaría en el entrenamiento (más muestras, señas más distintas) o en ajustar `DYN_CONF_MIN` y el smoother.
+- En dinámico con 2 manos en cámara, el traductor usa la mano **más a la izquierda** (orden por x), mientras que `gui_captura.py` captura con la primera mano que entrega MediaPipe. Con una sola mano en cámara coinciden, y la captura ahora bloquea el caso de 2 manos, así que el dataset dinámico queda consistente.
 
 ---
 
-## [2026-09-21] - Integración de Ramas y Estabilización Final
+## 2. `gui_captura.py`
 
-### 🚀 Nuevas Funcionalidades
-- **Menú Universal Unificado**: Implementación de `inicio/menu_universal.py` como punto de entrada central, integrando las pestañas de Inicio, Captura, Entrenamiento, Paquetes y Traducción en una sola interfaz profesional.
-- **Sistema de Importación/Exportación de Datasets**:
-    - Creación de `inicio/pack_manager.py` para empaquetar datasets y modelos en archivos `.zip`.
-    - Implementación de manifiestos JSON para validar compatibilidad de features.
-    - Sistema de resolución de conflictos (Fusionar, Reemplazar u Omitir) al importar paquetes.
-- **Soporte para Señas Dinámicas**:
-    - Implementación de `inicio/temporal_pooling.py` para procesar secuencias temporales de landmarks.
-    - Actualización de `inicio/gui_captura.py` con modo de captura dinámica (secuencias de frames).
-    - Entrenamiento dual en `inicio/train_classifier.py` para modelos estáticos y dinámicos (`_dinamico.pkl`).
-    - Lógica de segmentación en `inicio/realtime_translator.py` basada en el movimiento de la muñeca para disparar la inferencia dinámica.
-- **Salida de Voz (TTS)**:
-    - Integración de `inicio/tts_output.py` para emitir audio de las señas confirmadas mediante un hilo de trabajo desacoplado para evitar congelamientos de la UI.
-- **Visor Web Seguro**:
-    - Sincronización total entre el `SessionManager` del servidor y el generador de QR.
-    - Implementación de acceso directo mediante tokens efímeros en la URL del QR.
-    - Refuerzo de seguridad con Rate Limiting y cabeceras CSP.
+### Nuevo
 
-### 🐛 Correcciones de Errores
-- **Sincronización de PIN**: Solucionando el error donde el visor web rechazaba el PIN debido a la generación independiente en `qr_generator.py`.
-- **Errores de Sintaxis y Módulos**: Corrección de literales de cadena no terminados en el traductor y resolución de `ModuleNotFoundError` para `temporal_pooling` y `qr_generator`.
-- **Estabilidad de Entrenamiento**: Solucionando el error de ambigüedad de NumPy (`truth value of an array`) en el entrenamiento de modelos dinámicos.
-- **Gestión de Recursos**: Implementación del método `cleanup()` en `CaptureGUI` para liberar la cámara al cambiar de pestaña en el menú universal.
-- **Dependencias**: Corrección de `NameError` por falta de importación de `Optional` en el módulo de generación de QR.
+- **Captura dinámica con una sola mano**: cada frame de la secuencia usa `build_feature_vector` con la primera mano detectada. Todos los vectores de la secuencia tienen el mismo tamaño y el modelo dinámico se entrena con datos homogéneos.
+- **Aviso de 2 manos en dinámico**:
+  - Antes de empezar: si ya hay 2 manos en cámara, muestra el aviso y no inicia la captura.
+  - Durante la captura: si aparece una segunda mano, se cancela la secuencia completa (no se guarda nada) y se muestra el aviso. Se usa la excepción `TwoHandsDetected`.
+- **Aviso visual en el video**: texto rojo "Modo dinamico: usa SOLO UNA mano" mientras haya 2 manos en modo dinámico.
+- **Etiqueta** del radiobutton: "Dinámica (1 mano)".
+- **Guard de cámara**: si se pulsa guardar sin cámara abierta, avisa "Abre la cámara primero" en lugar de fallar.
+
+### Corregido
+
+- **Hilos**: la captura dinámica leía la cámara y llamaba a `hands.process` desde un hilo aparte, a la vez que el hilo de video. Ahora solo `capture_loop` toca MediaPipe. Guarda el último resultado en `last_results` (protegido con `frame_lock`) y el worker de captura lo lee de ahí.
+  - Efecto secundario: si la cámara va a menos de ~33 fps, la secuencia puede repetir algún frame.
+- **`NameError` en el mensaje de error**: el `lambda` del `except Exception as e` usaba `e` después de que Python la elimina al salir del bloque. Ahora se guarda `msg = str(e)` antes.
+- **Modo leído desde otro hilo**: el modo se copia a `self._mode` (variable normal) con un `trace` sobre el `StringVar`, para no leer Tkinter desde el hilo de la cámara.
+
+### Sin cambios
+
+- Modo estático: sigue soportando 1 o 2 manos.
+- Trigger por puño cerrado, temporizador de 5 s, lista de palabras y contador de muestras.
 
 ---
+
+## 3. Referencia de parámetros de configuración
+
+Todos los valores son los de la versión actual. Los "ajustables" están en `CustomSignTranslator.__init__` bajo el bloque `PARÁMETROS AJUSTABLES`. Las duraciones en segundos son aproximadas y suponen ~30 fps.
+
+### 3.1 `realtime_translator.py`: argumentos de línea de comandos
+
+| Argumento | Por defecto | Qué hace |
+|---|---|---|
+| `--camera` | `None` | Índice de la cámara. Con `None`, `camera_utils.open_camera` elige una disponible. |
+| `--models-dir` | `./models` | Carpeta con los modelos (`.pkl`), etiquetas y metadatos (`.json`). |
+| `--mode` | `auto` | `auto`: híbrido estático + dinámico. `estatico`: ignora todo lo dinámico. `dinamico`: ignora las predicciones estáticas. |
+| `--debug` | apagado | Imprime en consola las evaluaciones de la confirmación temprana (`[DIN-temprano]`). Solo tiene efecto si `EARLY_CONFIRM` está activo. |
+
+### 3.2 `realtime_translator.py`: argumentos del constructor
+
+| Parámetro | Por defecto | Qué hace |
+|---|---|---|
+| `models_dir` | `./models` | Carpeta de modelos (igual que `--models-dir`). |
+| `max_hands` | `2` | Máximo de manos que detecta MediaPipe. Con `1` nunca se usará el modelo de 2 manos. |
+| `rotate_invariant` | `True` | Se pasa a `hand_features` para que las features no dependan de la rotación de la mano. Debe coincidir con cómo se entrenó el modelo. |
+| `confidence_threshold` | `0.75` | Umbral de confianza de los `PredictionSmoother` (uno por modelo estático). La lógica de votación está en `smoothing.py`. |
+| `mode` | `auto` | Igual que `--mode`. |
+| `debug` | `False` | Igual que `--debug`. |
+
+### 3.3 `realtime_translator.py`: MediaPipe
+
+| Parámetro | Valor | Qué hace |
+|---|---|---|
+| `min_detection_confidence` | `0.70` | Confianza mínima para detectar una mano nueva. Más alto = menos manos fantasma, pero más frames sin detección. |
+| `min_tracking_confidence` | `0.60` | Confianza mínima para seguir una mano ya detectada. Más bajo = el tracker la mantiene más tiempo; más alto = la vuelve a detectar más seguido. |
+| `static_image_mode` | `False` | Modo video con tracking (fijo, no configurable). |
+
+### 3.4 Movimiento
+
+| Parámetro | Valor | Qué hace | Cuándo ajustarlo |
+|---|---|---|---|
+| `MOV_THRESHOLD` | `0.012` | Umbral sobre el movimiento suavizado (EMA, después de la zona muerta) para considerar que hay movimiento. En régimen estable equivale a un desplazamiento de ~0.02 por frame (`0.012 + 0.008`). También define "quieto" para el estático: `mov < MOV_THRESHOLD × 0.6`. | Si las dinámicas no se activan, **bájalo**. Si se activan solas con la mano quieta, **súbelo**. |
+| `MOV_NOISE_FLOOR` | `0.008` | Zona muerta: desplazamientos por frame menores a esto se tratan como temblor y no cuentan. | Súbelo si con la mano "quieta" igual se activa el modo dinámico. |
+| `MOV_FRAMES_TO_START` | `3` | Frames consecutivos con movimiento real antes de arrancar la grabación dinámica (~0.1 s). | Súbelo si la mano entrando en cámara dispara gestos falsos. Bájalo si se pierde el inicio de gestos rápidos. |
+| `MOV_FRAMES_TO_STOP` | `3` | **Declarado pero no se usa** en el código actual. La parada la controla `FRAMES_QUIETO_PARA_FINALIZAR`. | No tiene efecto. |
+
+Valores fijos en el código, no expuestos como parámetro:
+
+- El EMA pondera `0.6 × valor anterior + 0.4 × movimiento efectivo`. Cuando no hay movimiento decae ×0.6 por frame.
+- El movimiento se calcula sobre el centro de todas las muñecas visibles. Si cambia el número de manos, el EMA y la racha se reinician.
+
+### 3.5 Estático
+
+| Parámetro | Valor | Qué hace | Cuándo ajustarlo |
+|---|---|---|---|
+| `STATIC_STILL_FRAMES` | `4` | Frames quietos seguidos antes de clasificar una seña estática. | Súbelo si lee poses de paso. Bájalo si tarda demasiado en reaccionar. |
+| `HAND_SCORE_MIN` | `0.40` | Score mínimo de MediaPipe por mano para clasificar estático. | Súbelo si clasifica manos mal detectadas. |
+| `HAND_COUNT_STABLE_FRAMES` | `4` | Frames con el mismo número de manos antes de cambiar entre modelo de 1 y de 2 manos. | Súbelo si el modelo salta entre 1h y 2h por parpadeos del tracker. |
+| `STATIC_COOLDOWN` | `12` | Frames sin clasificar estático tras detectar movimiento (solo modo `auto`). | Súbelo si el estático "adivina" justo después de un gesto. |
+| `IGNORE_LABELS` | `reposo, neutral, neutro, ninguna, nada, none, idle` | Clases que se reconocen pero nunca se emiten. Sirven para entrenar una clase de "no seña". Vale también para el modelo dinámico. | Añade los nombres de tus clases de reposo. |
+
+### 3.6 Dinámico
+
+| Parámetro | Valor | Qué hace | Cuándo ajustarlo |
+|---|---|---|---|
+| `FRAMES_QUIETO_PARA_FINALIZAR` | `5` | Frames quietos seguidos para dar por terminado el gesto (~0.17 s). | Súbelo si el gesto se corta a la mitad. Bájalo si tarda en responder al terminar. |
+| `MIN_DYN_FRAMES` | `8` | Secuencias con menos frames se descartan como ruido. | Bájalo solo si tus gestos son muy cortos. |
+| `DYN_CONF_MIN` | `0.80` | Confianza mínima para confirmar un gesto al terminar. | Bájalo si casi nunca confirma. Súbelo si confirma gestos equivocados. |
+| `MAX_DYN_SECONDS` | `4.0` | Duración máxima de una grabación antes de descartarla (evita bloqueos). | Súbelo para gestos largos. |
+| `LOST_FRAMES_TO_FINALIZE` | `4` | Frames sin mano antes de cerrar el gesto. Cubre el parpadeo del tracker en gestos rápidos. | Súbelo si los gestos rápidos se cortan al perder la mano un instante. |
+| `POST_DYN_COOLDOWN_OK` | `18` | Frames sin estático tras una dinámica confirmada. | Súbelo si tras un gesto el estático emite una palabra sobrante. |
+| `POST_DYN_COOLDOWN_FAIL` | `8` | Frames sin estático tras una dinámica descartada. | Igual que el anterior. |
+| `confirmed_persistence` | `15` | Frames que la palabra confirmada se mantiene en pantalla (~0.5 s). | Súbelo si desaparece demasiado rápido. |
+
+Valor fijo en el código: el buffer del gesto guarda como máximo **60** frames (si se pasa, se descartan los más viejos).
+
+### 3.7 Confirmación temprana (dinámico)
+
+Confirma la palabra **mientras haces el gesto**, sin esperar a que pares.
+
+| Parámetro | Valor | Qué hace |
+|---|---|---|
+| `EARLY_CONFIRM` | `False` | Interruptor general. **Desactivada por defecto.** Con `False` solo se confirma al terminar el gesto. |
+| `EARLY_MIN_FRAMES` | `12` | Frames mínimos grabados antes de evaluar por primera vez. |
+| `EARLY_EVAL_EVERY` | `3` | Se evalúa cada N frames de movimiento. |
+| `EARLY_CONF_MIN` | `0.90` | Confianza mínima de cada evaluación. Es más exigente que `DYN_CONF_MIN` a propósito, para evitar disparos falsos. |
+| `EARLY_HITS_REQUIRED` | `2` | Evaluaciones consecutivas que deben dar la misma clase para confirmar. |
+
+### 3.8 Archivos que lee el traductor (dentro de `models_dir`)
+
+| Archivo | Obligatorio | Uso |
+|---|---|---|
+| `custom_sign_model.pkl`, `custom_sign_labels.pkl`, `custom_sign_meta.json` | Sí | Modelo estático de 1 mano. |
+| `custom_sign_model_dinamico.pkl`, `custom_sign_labels_dinamico.pkl` (+ `custom_sign_meta_dinamico.json`) | No | Modelo dinámico. El `.json` es opcional. |
+| `custom_sign_model_two_hands.pkl`, `custom_sign_labels_two_hands.pkl` (+ `custom_sign_meta_two_hands.json`) | No | Modelo estático de 2 manos. El `.json` es opcional. |
+
+### 3.9 `gui_captura.py`
+
+| Parámetro | Valor | Qué hace | Dónde |
+|---|---|---|---|
+| `max_num_hands` | `2` | MediaPipe detecta hasta 2 manos. Se necesita en 2 para poder capturar estático de 2 manos y avisar en dinámico. | `Hands(...)` |
+| `min_detection_confidence` | `0.7` | Confianza mínima para detectar una mano. | `Hands(...)` |
+| `min_tracking_confidence` | `0.5` | Confianza mínima para seguirla. | `Hands(...)` |
+| `TRIGGER_THRESHOLD` | `15` | Frames con el puño cerrado para activar la captura autónoma (~0.5 s). | `__init__` |
+| Umbral de puño cerrado | `0.15` | Un puño está cerrado si las puntas de índice, medio, anular y meñique (landmarks 8, 12, 16, 20) están a menos de 0.15 de la muñeca (distancia 2D normalizada). Fijo en el código. | `_check_trigger_gesture` |
+| Cuenta regresiva autónoma | `3 s` | Tiempo entre el puño cerrado y el guardado. | `start_autonomous_countdown` |
+| Temporizador | `5 s` | Cuenta regresiva del botón "Temporizador (5s)". | `start_timer_capture` |
+| `num_frames` (dinámico) | `20` | Frames por secuencia dinámica. | `capture_worker` |
+| `time.sleep(0.03)` (dinámico) | `0.03 s` | Espera entre frames de la secuencia (~0.6 s en total). | `capture_worker` |
+| Refresco de video | `15 ms` | Intervalo con que se actualiza la imagen en la ventana. | `update_video` |
+| Ventana | `1100x700` | Tamaño de la ventana en modo independiente. | `__init__` |
+
+### 3.10 Guía rápida: síntoma → ajuste
+
+| Síntoma | Ajuste sugerido |
+|---|---|
+| El modo dinámico se activa con la mano quieta | Subir `MOV_NOISE_FLOOR` o `MOV_THRESHOLD`; subir `MOV_FRAMES_TO_START` |
+| Los gestos dinámicos no se detectan | Bajar `MOV_THRESHOLD`; bajar `MOV_FRAMES_TO_START` |
+| El gesto se corta a la mitad | Subir `FRAMES_QUIETO_PARA_FINALIZAR` y `LOST_FRAMES_TO_FINALIZE` |
+| Confirma gestos equivocados | Subir `DYN_CONF_MIN` |
+| Casi nunca confirma un gesto | Bajar `DYN_CONF_MIN`; capturar más muestras de esa seña |
+| El estático lee poses de paso | Subir `STATIC_STILL_FRAMES` y `STATIC_COOLDOWN` |
+| Salta entre modelo de 1 y 2 manos | Subir `HAND_COUNT_STABLE_FRAMES` |
+| La palabra desaparece muy rápido | Subir `confirmed_persistence` |
