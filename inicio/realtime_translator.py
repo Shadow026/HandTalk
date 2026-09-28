@@ -176,7 +176,7 @@ class CustomSignTranslator:
         # --- Movimiento ---
         # Desplazamiento por frame (normalizado y suavizado). Si las dinámicas no se activan,
         # BAJA MOV_THRESHOLD; si se activan solas con la mano quieta, SÚBELO.
-        self.MOV_THRESHOLD = 0.015
+        self.MOV_THRESHOLD = 0.01
         # Zona muerta: distancias menores a esto se consideran ruido/temblor (no movimiento).
         # Súbelo si con la mano "quieta" igual se activa el modo dinámico.
         self.MOV_NOISE_FLOOR = 0.008
@@ -202,7 +202,7 @@ class CustomSignTranslator:
         # --- Dinámico ---
         self.FRAMES_QUIETO_PARA_FINALIZAR = 5   # ~0.17 s quieto para dar por terminado
         self.MIN_DYN_FRAMES = 8                 # secuencias más cortas = ruido
-        self.DYN_CONF_MIN = 0.80                # confianza mínima al terminar el gesto
+        self.DYN_CONF_MIN = 0.40                # confianza mínima al terminar el gesto
         self.MAX_DYN_SECONDS = 4.0
         self.LOST_FRAMES_TO_FINALIZE = 4        # frames sin mano antes de cerrar el gesto
         self.POST_DYN_COOLDOWN_OK = 18          # frames sin estático tras dinámica confirmada
@@ -820,7 +820,7 @@ class CustomSignTranslator:
         print(f"[OK] Camara {resolved_id} abierta. Presiona Q para salir.")
         try:
             while True:
-                ret, frame = cap.read()
+                ret, frame = cap.read()  
                 if not ret:
                     break
                 frame = cv2.flip(frame, 1)
