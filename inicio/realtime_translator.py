@@ -176,7 +176,7 @@ class CustomSignTranslator:
         # --- Movimiento ---
         # Desplazamiento por frame (normalizado y suavizado). Si las dinámicas no se activan,
         # BAJA MOV_THRESHOLD; si se activan solas con la mano quieta, SÚBELO.
-        self.MOV_THRESHOLD = 0.01
+        self.MOV_THRESHOLD = 0.012
         # Zona muerta: distancias menores a esto se consideran ruido/temblor (no movimiento).
         # Súbelo si con la mano "quieta" igual se activa el modo dinámico.
         self.MOV_NOISE_FLOOR = 0.008
@@ -188,7 +188,7 @@ class CustomSignTranslator:
 
         # --- Estático ---
         self.STATIC_STILL_FRAMES = 4       # frames quietos antes de clasificar estático
-        self.HAND_SCORE_MIN = 0.80         # score mínimo de MediaPipe por mano
+        self.HAND_SCORE_MIN = 0.40         # score mínimo de MediaPipe por mano
         self.HAND_COUNT_STABLE_FRAMES = 4  # frames estables antes de cambiar 1h <-> 2h
         self.STATIC_COOLDOWN = 12          # frames sin estático tras detectar movimiento
         self.MIN_PROB_CORREGIDA = 0.30     # prob. mínima para aceptar clase corregida por reglas
@@ -202,7 +202,7 @@ class CustomSignTranslator:
         # --- Dinámico ---
         self.FRAMES_QUIETO_PARA_FINALIZAR = 5   # ~0.17 s quieto para dar por terminado
         self.MIN_DYN_FRAMES = 8                 # secuencias más cortas = ruido
-        self.DYN_CONF_MIN = 0.40                # confianza mínima al terminar el gesto
+        self.DYN_CONF_MIN = 0.80                # confianza mínima al terminar el gesto
         self.MAX_DYN_SECONDS = 4.0
         self.LOST_FRAMES_TO_FINALIZE = 4        # frames sin mano antes de cerrar el gesto
         self.POST_DYN_COOLDOWN_OK = 18          # frames sin estático tras dinámica confirmada
@@ -781,11 +781,6 @@ class CustomSignTranslator:
         if self.is_recording_dyn:
             cv2.putText(frame, f"Capturando movimiento... ({len(self.dyn_buffer)})", (30, 160),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
-
-        # Últimas señas confirmadas (útil al encadenar varias)
-        if self.history:
-            cv2.putText(frame, "> " + " | ".join(str(w) for w in self.history[-5:]), (30, 200),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
 
         if n_manos:
             h = frame.shape[0]

@@ -9,6 +9,8 @@ de datos con la normalización de hand_features.py.
 
 Flujo:
 Cámara -> MediaPipe -> hand_features.build_feature_vector() -> dataset_manager.save_sample()
+
+Nota: el modo estático soporta 1 o 2 manos; el modo dinámico usa SOLO UNA mano.
 """
 
 import tkinter as tk
@@ -23,6 +25,12 @@ import numpy as np
 import camera_utils
 import hand_features
 import dataset_manager
+
+
+class TwoHandsDetected(Exception):
+    """Se detectaron 2 manos durante una captura dinámica (solo se permite 1)."""
+    pass
+
 
 class CaptureGUI:
     def __init__(self, root, parent_frame=None, camera_id=None):
@@ -50,6 +58,12 @@ class CaptureGUI:
 
         # Modo de captura: "static" o "dynamic"
         self.capture_mode = tk.StringVar(value="static")
+        # Copia en variable normal para leerla desde el hilo de la cámara
+        self._mode = "static"
+        self.capture_mode.trace_add("write", lambda *a: setattr(self, "_mode", self.capture_mode.get()))
+
+        # Último resultado de MediaPipe (lo escribe capture_loop, lo leen los demás)
+        self.last_results = None
 
         # MediaPipe Hands
         self.mp_hands = mp.solutions.hands
@@ -100,7 +114,7 @@ class CaptureGUI:
 
         tk.Radiobutton(mode_options, text="Estática", variable=self.capture_mode,
                       value="static", bg="#FFFFFF", activebackground="#FFFFFF").pack(side=tk.LEFT, padx=5)
-        tk.Radiobutton(mode_options, text="Dinámica", variable=self.capture_mode,
+        tk.Radiobutton(mode_options, text="Dinámica (1 mano)", variable=self.capture_mode,
                       value="dynamic", bg="#FFFFFF", activebackground="#FFFFFF").pack(side=tk.LEFT, padx=5)
 
         # Entrada de Palabra
@@ -210,8 +224,14 @@ class CaptureGUI:
                         frame, hand_landmarks, self.mp_hands.HAND_CONNECTIONS
                     )
 
+            n_hands = len(results.multi_hand_landmarks) if results.multi_hand_landmarks else 0
+            if self._mode == "dynamic" and n_hands > 1:
+                cv2.putText(frame, "Modo dinamico: usa SOLO UNA mano", (20, 40),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
+
             with self.frame_lock:
                 self.frame_actual = frame
+                self.last_results = results
 
         self.cap and self.cap.release()
 
@@ -302,6 +322,21 @@ class CaptureGUI:
 
         mode = self.capture_mode.get()
 
+        if self.cap is None:
+            messagebox.showwarning("Atención", "Abre la cámara primero.")
+            return
+
+        if mode == "dynamic":
+            with self.frame_lock:
+                res = self.last_results
+            if res is not None and res.multi_hand_landmarks and len(res.multi_hand_landmarks) > 1:
+                messagebox.showwarning(
+                    "Atención",
+                    "Se detectaron 2 manos. La captura dinámica usa solo una mano.\n"
+                    "Deja una sola mano en cámara e intenta de nuevo."
+                )
+                return
+
         if mode == "static":
             ret, frame = self.cap.read()
             if not ret:
@@ -343,23 +378,18 @@ class CaptureGUI:
 
                 try:
                     for i in range(num_frames):
-                        ret, frame = self.cap.read()
-                        if not ret: break
-
-                        frame = cv2.flip(frame, 1)
-                        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        results = self.hands.process(rgb_frame)
+                        # Se usa el último resultado del hilo de la cámara (un solo hilo toca MediaPipe)
+                        with self.frame_lock:
+                            results = self.last_results
+                        if results is None:
+                            raise RuntimeError("No hay frames de la cámara.")
 
                         if results.multi_hand_landmarks:
-                            # SOPORTE PARA DOS MANOS (DINÁMICAS)
-                            if len(results.multi_hand_landmarks) == 2:
-                                features = hand_features.build_two_hand_feature_vector(
-                                    results.multi_hand_landmarks,
-                                    multi_handedness=results.multi_handedness
-                                )
-                            else:
-                                landmarks = results.multi_hand_landmarks[0]
-                                features = hand_features.build_feature_vector(landmarks)
+                            # DINÁMICO: SOLO UNA MANO. Si hay 2, se cancela y se avisa.
+                            if len(results.multi_hand_landmarks) > 1:
+                                raise TwoHandsDetected()
+                            landmarks = results.multi_hand_landmarks[0]
+                            features = hand_features.build_feature_vector(landmarks)
                             sequence.append(features)
                         else:
                             if len(sequence) > 0:
@@ -375,8 +405,15 @@ class CaptureGUI:
                     dataset_manager.save_sample(sequence, word, sample_type="dynamic")
                     self.root.after(0, self._finalize_capture_success)
 
+                except TwoHandsDetected:
+                    self.root.after(0, lambda: messagebox.showwarning(
+                        "Atención",
+                        "Se detectaron 2 manos. La captura dinámica usa solo una mano.\n"
+                        "Deja una sola mano en cámara e intenta de nuevo."
+                    ))
                 except Exception as e:
-                    self.root.after(0, lambda: self._finalize_capture_error(str(e)))
+                    msg = str(e)
+                    self.root.after(0, lambda: self._finalize_capture_error(msg))
                 finally:
                     self.root.after(0, lambda: self.show_capture_progress(False))
 
