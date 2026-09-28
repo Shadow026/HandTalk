@@ -6,71 +6,323 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>HandTalk - Visor</title>
+    <title>HandTalk - Visor en Vivo</title>
     <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            margin: 0;
-            background: #0f1015;
-            color: white;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            padding: 10px;
+        :root {
+            /* Fondos */
+            --bg-primary: #0F1015;
+            --bg-surface: #1B1C24;
+            --bg-elevated: #242530;
+            --bg-hover: #2A2B38;
+
+            /* Texto */
+            --text-primary: #FFFFFF;
+            --text-secondary: #B2BEC3;
+            --text-muted: #636E72;
+
+            /* Marca */
+            --brand-primary: #6C5CE7;
+            --brand-hover: #7D6EF0;
+            --brand-light: #A29BFE;
+
+            /* Estados */
+            --success: #2ECC71;
+            --warning: #F39C12;
+            --danger: #E74C3C;
+
+            /* Confianza IA */
+            --confidence-high: #2ECC71;
+            --confidence-mid: #F39C12;
+            --confidence-low: #E74C3C;
+
+            /* Bordes */
+            --border-subtle: rgba(255, 255, 255, 0.08);
+            --border-medium: rgba(255, 255, 255, 0.15);
+
+            /* Sombras */
+            --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.3);
+            --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.6);
+
+            /* Radios */
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 14px;
+        }
+
+        /* Tema claro */
+        body.theme-light {
+            --bg-primary: #F4F6F9;
+            --bg-surface: #FFFFFF;
+            --bg-elevated: #F8FAFC;
+            --bg-hover: #EDF2F7;
+
+            --text-primary: #2D3436;
+            --text-secondary: #636E72;
+            --text-muted: #95A5A6;
+
+            --border-subtle: rgba(0, 0, 0, 0.06);
+            --border-medium: rgba(0, 0, 0, 0.12);
+
+            --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.12);
+        }
+
+        /* ============================================================
+           RESET Y BASE
+           ============================================================ */
+        * {
             box-sizing: border-box;
         }
 
-        h1 {
-            margin: 8px 0 14px 0;
-            font-size: 18px;
-            font-weight: 600;
-            color: #dfe6e9;
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            transition: background 0.3s, color 0.3s;
         }
 
-        /* Contenedor que agrupa video + subtítulo superpuesto */
-        .visor {
-            position: relative;
-            width: 100%;
-            max-width: 720px;
-            background: #1b1c24;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+        /* ============================================================
+           HEADER CORPORATIVO
+           ============================================================ */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 20px;
+            background: var(--bg-surface);
+            border-bottom: 1px solid var(--border-subtle);
+            gap: 16px;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
+            flex: 1;
+        }
+
+        .logo-box {
             display: flex;
             align-items: center;
             justify-content: center;
-            min-height: 300px;
+            width: 44px;
+            height: 44px;
+            background: linear-gradient(135deg, var(--brand-primary), var(--brand-hover));
+            border-radius: var(--radius-md);
+            flex-shrink: 0;
+            box-shadow: 0 4px 12px rgba(108, 92, 231, 0.35);
+        }
+
+        .logo-box svg {
+            width: 26px;
+            height: 26px;
+            fill: white;
+        }
+
+        .header-brand {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        .brand-name {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: 0.3px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .brand-sub {
+            font-size: 11px;
+            color: var(--text-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .status-pill {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: var(--bg-elevated);
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            border: 1px solid var(--border-subtle);
+            transition: all 0.3s;
+        }
+
+        .status-pill.connected {
+            border-color: rgba(46, 204, 113, 0.4);
+            background: rgba(46, 204, 113, 0.12);
+            color: var(--success);
+        }
+
+        .status-pill.error {
+            border-color: rgba(231, 76, 60, 0.4);
+            background: rgba(231, 76, 60, 0.12);
+            color: var(--danger);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--warning);
+            animation: pulse 2s infinite;
+        }
+
+        .status-pill.connected .status-dot {
+            background: var(--success);
+            animation: none;
+        }
+
+        .status-pill.error .status-dot {
+            background: var(--danger);
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .icon-btn {
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+        }
+
+        .icon-btn:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+            border-color: var(--border-medium);
+        }
+
+        .icon-btn svg {
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
+        }
+
+        /* ============================================================
+           CONTENEDOR PRINCIPAL
+           ============================================================ */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+            gap: 16px;
+            max-width: 1200px;
+            width: 100%;
+            margin: 0 auto;
+            justify-content: center;
+        }
+
+        /* ============================================================
+           VISOR DE VIDEO
+           ============================================================ */
+        .visor {
+            position: relative;
+            width: 100%;
+            background: #0a0a0f;
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            box-shadow: var(--shadow-lg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 320px;
+            aspect-ratio: 16 / 10;
+            max-height: 68vh;
+            margin: 0 auto;
         }
 
         #camara {
             width: 100%;
+            height: 100%;
+            object-fit: contain;
             display: block;
-            border-radius: 12px;
+            background: #0a0a0f;
         }
 
-        /* El subtítulo va POSICIONADO ENCIMA del video, no dentro de la imagen */
-        #subtitulo {
+        /* ============================================================
+           SUBTÍTULO ENRIQUECIDO
+           ============================================================ */
+        .subtitle-box {
             position: absolute;
             bottom: 24px;
             left: 50%;
             transform: translateX(-50%);
-            padding: 10px 22px;
-            border-radius: 8px;
-            font-size: 26px;
-            font-weight: 800;
-            max-width: 90%;
+            min-width: 220px;
+            max-width: 88%;
+            padding: 14px 26px;
+            border-radius: var(--radius-md);
             text-align: center;
-            min-height: 1.2em;
             transition: background 0.2s, color 0.2s, border 0.2s;
             pointer-events: none;
-            letter-spacing: 1px;
+            backdrop-filter: blur(8px);
         }
 
-        /* Estilos de contraste alternables con la tecla 'T' */
+        .subtitle-word {
+            font-size: clamp(22px, 4vw, 34px);
+            font-weight: 800;
+            letter-spacing: 1px;
+            line-height: 1.15;
+            margin-bottom: 6px;
+        }
+
+        .subtitle-confidence-bar {
+            height: 5px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 6px;
+        }
+
+        .subtitle-confidence-fill {
+            height: 100%;
+            width: 0%;
+            background: var(--confidence-high);
+            border-radius: 3px;
+            transition: width 0.3s ease, background 0.3s;
+        }
+
+        .subtitle-meta {
+            font-size: 11px;
+            opacity: 0.75;
+            margin-top: 4px;
+            letter-spacing: 0.5px;
+        }
+
+        /* Estilos de contraste del subtítulo (los 3 originales) */
         .contrast-default {
-            background: rgba(15, 16, 21, 0.85);
+            background: rgba(15, 16, 21, 0.88);
             color: #ffffff;
             border: 2px solid rgba(108, 92, 231, 0.6);
             text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
@@ -78,127 +330,378 @@
 
         .contrast-yellow {
             background: #000000;
-            color: #fed330;
-            border: 3px solid #fed330;
+            color: #FED330;
+            border: 3px solid #FED330;
             text-shadow: none;
         }
 
+        .contrast-yellow .subtitle-confidence-bar {
+            background: rgba(254, 211, 48, 0.2);
+        }
+
+        .contrast-yellow .subtitle-confidence-fill {
+            background: #FED330;
+        }
+
         .contrast-light {
-            background: #ffffff;
+            background: #FFFFFF;
             color: #111111;
             border: 3px solid #111111;
             text-shadow: none;
         }
 
-        #estado {
-            margin-top: 12px;
-            font-size: 13px;
-            color: #888;
+        .contrast-light .subtitle-confidence-bar {
+            background: rgba(0, 0, 0, 0.15);
+        }
+
+        /* ============================================================
+           INDICADORES SOBRE EL VIDEO
+           ============================================================ */
+        .overlay-indicators {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            pointer-events: none;
+        }
+
+        .indicator {
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 5px;
+            padding: 5px 10px;
+            background: rgba(15, 16, 21, 0.78);
+            backdrop-filter: blur(6px);
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.08);
         }
 
-        .dot {
-            width: 8px;
-            height: 8px;
+        .indicator-dot {
+            width: 7px;
+            height: 7px;
             border-radius: 50%;
-            display: inline-block;
-            background-color: #f39c12;
+            background: #E74C3C;
         }
 
-        .dot.connected { background-color: #2ecc71; }
-        .dot.error { background-color: #e74c3c; }
+        .indicator-dot.rec {
+            animation: blink 1.5s infinite;
+        }
 
-        /* Barra de atajos de teclado */
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .indicator-dot.ai-active {
+            background: #6C5CE7;
+            animation: pulse 1.2s infinite;
+        }
+
+        .indicator-dot.ai-idle {
+            background: #636E72;
+        }
+
+        /* ============================================================
+           BARRA DE ATAJOS (los mismos 3 originales)
+           ============================================================ */
         .shortcuts-bar {
-            margin-top: 16px;
-            font-size: 12px;
-            color: #636e72;
             display: flex;
-            gap: 14px;
             flex-wrap: wrap;
+            gap: 14px;
             justify-content: center;
+            padding: 10px;
+            font-size: 11px;
+            color: var(--text-muted);
         }
 
         .shortcut-item {
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 5px;
         }
 
         .kbd {
-            background: #2d3436;
-            color: #dfe6e9;
-            padding: 2px 7px;
+            background: var(--bg-elevated);
+            color: var(--text-primary);
+            padding: 2px 8px;
             border-radius: 4px;
-            border: 1px solid #485460;
-            font-size: 11px;
+            border: 1px solid var(--border-medium);
+            font-size: 10px;
             font-weight: 700;
-        /* Badge de modelo IA y señas preentrenadas */
-        .model-bar {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 13px;
-            color: #b2bec3;
-            margin-bottom: 12px;
-            flex-wrap: wrap;
-            justify-content: center;
+            font-family: "Consolas", monospace;
         }
 
-        .sign-badge {
-            background: rgba(108, 92, 231, 0.25);
-            color: #a29bfe;
-            border: 1px solid rgba(108, 92, 231, 0.6);
-            padding: 3px 10px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+        /* ============================================================
+           RESPONSIVE
+           ============================================================ */
+        @media (max-width: 640px) {
+            .header {
+                padding: 8px 12px;
+            }
+
+            .brand-sub {
+                display: none;
+            }
+
+            .main {
+                padding: 10px;
+                gap: 10px;
+            }
+
+            .subtitle-box {
+                bottom: 16px;
+                padding: 10px 18px;
+            }
+
+            .shortcuts-bar {
+                display: none;
+            }
         }
     </style>
 </head>
 <body>
-    <h1>HandTalk — Visor en Vivo</h1>
 
-    <div class="model-bar" id="modelBar">
-        <span>Señas preentrenadas:</span>
-        <span class="sign-badge" id="badgeDefault1">dedo</span>
-        <span class="sign-badge" id="badgeDefault2">hola</span>
-    </div>
+    <!-- ============================================================
+         HEADER CORPORATIVO
+         ============================================================ -->
+    <header class="header">
+        <div class="header-left">
+            <div class="logo-box" aria-label="Logo HandTalk">
+                <!-- SVG: Ícono de mano (señal) -->
+                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 2c-.83 0-1.5.67-1.5 1.5V11h-1V5.5C9.5 4.67 8.83 4 8 4s-1.5.67-1.5 1.5V11h-1V7.5C5.5 6.67 4.83 6 4 6s-1.5.67-1.5 1.5V14c0 4.42 3.58 8 8 8s8-3.58 8-8v-1.5c0-.83-.67-1.5-1.5-1.5S15.5 11.67 15.5 12.5V13h-1V5.5c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5V11h-1V3.5C13.5 2.67 12.83 2 12 2z"/>
+                </svg>
+            </div>
+            <div class="header-brand">
+                <div class="brand-name">HandTalk</div>
+                <div class="brand-sub">Traductor de Señas en Vivo</div>
+            </div>
+        </div>
 
-    <div class="visor" id="visorContainer">
-        <!-- STREAM DE VIDEO: una imagen que el navegador refresca sola (MJPEG) -->
-        <img id="camara" alt="Cámara en vivo" src="/stream">
+        <div class="header-right">
+            <div class="status-pill" id="statusPill">
+                <span class="status-dot"></span>
+                <span id="statusText">Conectando...</span>
+            </div>
+            <button class="icon-btn" id="themeToggle" title="Cambiar tema (D)" aria-label="Cambiar tema">
+                <svg id="themeIcon" viewBox="0 0 24 24">
+                    <path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/>
+                </svg>
+            </button>
+        </div>
+    </header>
 
-        <!-- SUBTÍTULO: se actualiza por WebSocket, independiente del video -->
-        <div id="subtitulo" class="contrast-default">Esperando señas...</div>
-    </div>
+    <!-- ============================================================
+         CONTENIDO PRINCIPAL
+         ============================================================ -->
+    <main class="main">
 
-    <div id="estado">
-        <span id="dotEstado" class="dot"></span>
-        <span id="textoEstado">Conectando...</span>
-    </div>
+        <!-- VISOR DE VIDEO -->
+        <div class="visor" id="visorContainer">
+            <img id="camara" alt="Cámara en vivo" src="/stream">
 
-    <div class="shortcuts-bar">
-        <div class="shortcut-item"><span class="kbd">F</span> Pantalla Completa</div>
-        <div class="shortcut-item"><span class="kbd">C</span> Limpiar Subtítulo</div>
-        <div class="shortcut-item"><span class="kbd">T</span> Alternar Contraste</div>
-    </div>
+            <!-- Indicadores sobre el video -->
+            <div class="overlay-indicators">
+                <div class="indicator">
+                    <span class="indicator-dot rec"></span>
+                    <span>REC</span>
+                </div>
+                <div class="indicator" id="indicatorAI">
+                    <span class="indicator-dot ai-idle"></span>
+                    <span>IA</span>
+                </div>
+                <div class="indicator" id="indicatorLatency">
+                    <span id="latencyValue">-- ms</span>
+                </div>
+            </div>
 
+            <!-- Subtítulo enriquecido -->
+            <div class="subtitle-box contrast-default" id="subtitulo">
+                <div class="subtitle-word" id="subtitleWord">Esperando señas...</div>
+                <div class="subtitle-confidence-bar">
+                    <div class="subtitle-confidence-fill" id="subtitleConfFill"></div>
+                </div>
+                <div class="subtitle-meta" id="subtitleMeta"></div>
+            </div>
+        </div>
+
+        <!-- ATAJOS (los mismos 3 originales) -->
+        <div class="shortcuts-bar">
+            <div class="shortcut-item"><span class="kbd">F</span> Pantalla completa</div>
+            <div class="shortcut-item"><span class="kbd">C</span> Limpiar subtítulo</div>
+            <div class="shortcut-item"><span class="kbd">T</span> Contraste</div>
+            <div class="shortcut-item"><span class="kbd">D</span> Tema</div>
+        </div>
+
+    </main>
+
+    <!-- ============================================================
+         SCRIPT
+         ============================================================ -->
     <script>
+        // ============================================================
+        // REFERENCIAS DOM
+        // ============================================================
         const subtitulo = document.getElementById("subtitulo");
-        const textoEstado = document.getElementById("textoEstado");
-        const dotEstado = document.getElementById("dotEstado");
+        const subtitleWord = document.getElementById("subtitleWord");
+        const subtitleConfFill = document.getElementById("subtitleConfFill");
+        const subtitleMeta = document.getElementById("subtitleMeta");
+        const statusPill = document.getElementById("statusPill");
+        const statusText = document.getElementById("statusText");
         const visorContainer = document.getElementById("visorContainer");
-        const modelBar = document.getElementById("modelBar");
+        const indicatorAI = document.getElementById("indicatorAI");
+        const indicatorLatency = document.getElementById("indicatorLatency");
+        const latencyValue = document.getElementById("latencyValue");
+        const themeIcon = document.getElementById("themeIcon");
 
-        // window.location.host toma automáticamente la IP y puerto reales
+        // ============================================================
+        // ESTADO GLOBAL
+        // ============================================================
+        const STORAGE_KEYS = {
+            theme: "handtalk_theme",
+        };
+
+        let lastWord = "";
+        let lastConfidence = 0;
+        let lastMessageAt = 0;
+        const contrastStyles = ["contrast-default", "contrast-yellow", "contrast-light"];
+        let currentContrastIndex = 0;
+
+        // ============================================================
+        // TEMA CLARO/OSCURO
+        // ============================================================
+        function updateThemeIcon(theme) {
+            if (theme === "light") {
+                // Ícono sol
+                themeIcon.innerHTML = '<path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>';
+            } else {
+                // Ícono luna
+                themeIcon.innerHTML = '<path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/>';
+            }
+        }
+
+        function toggleTheme() {
+            const isLight = document.body.classList.toggle("theme-light");
+            localStorage.setItem(STORAGE_KEYS.theme, isLight ? "light" : "dark");
+            updateThemeIcon(isLight ? "light" : "dark");
+        }
+
+        function loadTheme() {
+            const savedTheme = localStorage.getItem(STORAGE_KEYS.theme);
+            if (savedTheme === "light") {
+                document.body.classList.add("theme-light");
+                updateThemeIcon("light");
+            } else {
+                updateThemeIcon("dark");
+            }
+        }
+
+        // ============================================================
+        // CONFIANZA Y SUBTÍTULO
+        // ============================================================
+        function getConfidenceClass(conf) {
+            if (conf >= 0.8) return "high";
+            if (conf >= 0.6) return "mid";
+            return "low";
+        }
+
+        function updateSubtitle(word, confidence) {
+            subtitleWord.textContent = word;
+
+            const confClass = getConfidenceClass(confidence);
+            const pct = Math.round(confidence * 100);
+
+            // Barra de confianza
+            subtitleConfFill.style.width = pct + "%";
+            subtitleConfFill.style.background = `var(--confidence-${confClass})`;
+
+            // Meta (porcentaje + hora)
+            const time = new Date().toLocaleTimeString("es-ES", {
+                hour: "2-digit", minute: "2-digit", second: "2-digit"
+            });
+            subtitleMeta.textContent = `${pct}% · ${time}`;
+
+            // Efecto IA activa
+            setAIActive(true);
+            setTimeout(() => setAIActive(false), 1200);
+        }
+
+        function setAIActive(active) {
+            const dot = indicatorAI.querySelector(".indicator-dot");
+            if (active) {
+                dot.classList.remove("ai-idle");
+                dot.classList.add("ai-active");
+            } else {
+                dot.classList.remove("ai-active");
+                dot.classList.add("ai-idle");
+            }
+        }
+
+        // ============================================================
+        // WEBSOCKET
+        // ============================================================
         const host = window.location.host;
+        const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const ws = new WebSocket(`${wsProtocol}//${host}/ws/translations`);
 
-        // Cargar metadatos del modelo preentrenado real del proyecto
+        ws.onopen = () => {
+            statusText.textContent = "En línea";
+            statusPill.classList.add("connected");
+            statusPill.classList.remove("error");
+        };
+
+        ws.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                const word = String(data.word || "").trim();
+                const confidence = Number(data.confidence) || 0;
+
+                if (!word) return;
+
+                // Latencia
+                const now = Date.now();
+                if (lastMessageAt > 0) {
+                    const latency = now - lastMessageAt;
+                    latencyValue.textContent = latency + " ms";
+                }
+                lastMessageAt = now;
+
+                // Actualizar subtítulo
+                updateSubtitle(word, confidence);
+
+                lastWord = word;
+                lastConfidence = confidence;
+            } catch (e) {
+                // Fallback texto plano
+                subtitleWord.textContent = event.data;
+                subtitleMeta.textContent = "";
+            }
+        };
+
+        ws.onclose = (event) => {
+            if (event.code === 1008 || event.reason === "No autorizado") {
+                window.location.replace("/login?error=unauthorized");
+                return;
+            }
+            statusText.textContent = "Desconectado";
+            statusPill.classList.remove("connected");
+            statusPill.classList.add("error");
+        };
+
+        ws.onerror = () => {
+            statusText.textContent = "Error de conexión";
+            statusPill.classList.remove("connected");
+            statusPill.classList.add("error");
+        };
+
+        // ============================================================
+        // INFO DEL MODELO (opcional, para futuro)
+        // ============================================================
         fetch("/api/info")
             .then(res => {
                 if (res.status === 401 || res.status === 403) {
@@ -209,68 +712,29 @@
             })
             .then(data => {
                 if (!data) return;
-                if (data.pretrained_words && data.pretrained_words.length > 0) {
-                    modelBar.innerHTML = '<span>Señas del modelo:</span> ' +
-                        data.pretrained_words.map(w => `<span class="sign-badge">${w}</span>`).join(" ");
-                }
+                // Futuro: mostrar info del modelo cargado
             })
-            .catch(() => {
-                // Mantiene los badges predeterminados si la API tarda en responder
-            });
+            .catch(() => {});
 
-        // WebSocket autenticado con cookie session_id (se envía automáticamente por el navegador)
-        const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const ws = new WebSocket(`${wsProtocol}//${host}/ws/translations`);
-
-        ws.onopen = () => {
-            textoEstado.textContent = "Conectado y listo (IA en vivo)";
-            dotEstado.className = "dot connected";
-        };
-
-        ws.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                // IMPORTANTE: textContent estricto, nunca innerHTML (prevención XSS)
-                subtitulo.textContent = data.word;
-            } catch (e) {
-                subtitulo.textContent = event.data;
-            }
-        };
-
-        ws.onclose = (event) => {
-            if (event.code === 1008 || event.reason === "No autorizado") {
-                window.location.replace("/login?error=unauthorized");
-                return;
-            }
-            textoEstado.textContent = "Conexión cerrada. Recargue la página.";
-            dotEstado.className = "dot error";
-        };
-
-        ws.onerror = () => {
-            textoEstado.textContent = "Error de conexión con el servidor";
-            dotEstado.className = "dot error";
-        };
-
-        // Prevención de bfcache: si se navega desde memoria en caché, forzar recarga
-        window.addEventListener("pageshow", (event) => {
-            if (event.persisted) {
-                window.location.reload();
-            }
-        });
-
+        // ============================================================
+        // CÁMARA: OCULTAR SI NO HAY STREAM
+        // ============================================================
         document.getElementById("camara").onerror = () => {
-            // Ocultar si no hay stream de cámara activa y dejar el área de texto limpia
             document.getElementById("camara").style.display = "none";
         };
 
-        // --- SISTEMA CENTRALIZADO DE ATAJOS DE TECLADO (MÓDULO 5) ---
-        const contrastStyles = ["contrast-default", "contrast-yellow", "contrast-light"];
-        let currentContrastIndex = 0;
-
+        // ============================================================
+        // ATAJOS DE TECLADO (F, C, T, D)
+        // ============================================================
         document.addEventListener("keydown", (e) => {
+            // Ignorar si está en un input
+            if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") {
+                return;
+            }
+
             const key = e.key.toUpperCase();
 
-            // Tecla F: Activar/desactivar modo pantalla completa (Fullscreen API)
+            // F: Pantalla completa
             if (key === "F" && !e.ctrlKey && !e.altKey && !e.metaKey) {
                 e.preventDefault();
                 if (!document.fullscreenElement) {
@@ -280,26 +744,51 @@
                         document.documentElement.requestFullscreen();
                     }
                 } else {
-                    if (document.exitFullscreen) {
-                        document.exitFullscreen();
-                    }
+                    if (document.exitFullscreen) document.exitFullscreen();
                 }
             }
 
-            // Tecla C: Limpiar el subtítulo actual de la pantalla
+            // C: Limpiar subtítulo
             if (key === "C" && !e.ctrlKey && !e.altKey && !e.metaKey) {
                 e.preventDefault();
-                subtitulo.textContent = "";
+                subtitleWord.textContent = "";
+                subtitleConfFill.style.width = "0%";
+                subtitleMeta.textContent = "";
             }
 
-            // Tecla T: Alternar contraste del subtítulo
+            // T: Alternar contraste
             if (key === "T" && !e.ctrlKey && !e.altKey && !e.metaKey) {
                 e.preventDefault();
                 contrastStyles.forEach(cls => subtitulo.classList.remove(cls));
                 currentContrastIndex = (currentContrastIndex + 1) % contrastStyles.length;
                 subtitulo.classList.add(contrastStyles[currentContrastIndex]);
             }
+
+            // D: Tema claro/oscuro
+            if (key === "D" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                e.preventDefault();
+                toggleTheme();
+            }
         });
+
+        // ============================================================
+        // BOTÓN DE TEMA
+        // ============================================================
+        document.getElementById("themeToggle").addEventListener("click", toggleTheme);
+
+        // ============================================================
+        // PREVENCIÓN DE BFCACHE
+        // ============================================================
+        window.addEventListener("pageshow", (event) => {
+            if (event.persisted) {
+                window.location.reload();
+            }
+        });
+
+        // ============================================================
+        // INICIALIZACIÓN
+        // ============================================================
+        loadTheme();
     </script>
 </body>
 </html>

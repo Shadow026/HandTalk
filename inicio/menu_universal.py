@@ -60,8 +60,8 @@ class UniversalMenuApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("HandTalk — Traductor de Señas Universal")
-        self.root.geometry("1024x680")
-        self.root.minsize(900, 600)
+        self.root.geometry("1366x768")
+        self.root.minsize(1024, 700)
 
         # Paleta de colores profesional y moderna
         self.c_bg = "#F4F6F9"           # Fondo principal claro
