@@ -144,6 +144,34 @@ class CustomSignTranslator:
         else:
             self.last_confirmed_word = None
 
+        # --- DETERMINACIÓN DE MODELO POR CANTIDAD DE MANOS ---
+        num_hands = 0
+        if results.multi_hand_landmarks:
+            num_hands = len(results.multi_hand_landmarks)
+
+        # Si hay 2 manos y tenemos el modelo de dos manos, priorizamos ese camino
+        if num_hands == 2 and self.model_2h is not None:
+            # Extraemos features de ambas manos
+            features = hand_features.build_two_hand_feature_vector(
+                results.multi_hand_landmarks,
+                results.multi_handedness,
+                rotate=self.rotate_invariant
+            )
+
+            # Predicción usando modelo de dos manos (siempre estática por ahora)
+            probs_2h = self.model_2h.predict_proba([features])[0]
+            best_idx_2h = probs_2h.argmax()
+            label_2h = self.encoder_2h.inverse_transform([best_idx_2h])[0]
+            conf_2h = float(probs_2h[best_idx_2h])
+
+            confirmed, avg_conf = self.smoother.update(label_2h, conf_2h)
+            if confirmed:
+                self.history.append(confirmed)
+                self._emit_confirmed(confirmed, avg_conf)
+
+            return label_2h, conf_2h, results, confirmed
+
+        # --- CAMINO DE UNA SOLA MANO (o fallback si no hay modelo 2h) ---
         if not results.multi_hand_landmarks:
             self.smoother.reset()
             self.is_recording_dyn = False
