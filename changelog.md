@@ -244,3 +244,60 @@ Confirma la palabra **mientras haces el gesto**, sin esperar a que pares.
 | El estático lee poses de paso | Subir `STATIC_STILL_FRAMES` y `STATIC_COOLDOWN` |
 | Salta entre modelo de 1 y 2 manos | Subir `HAND_COUNT_STABLE_FRAMES` |
 | La palabra desaparece muy rápido | Subir `confirmed_persistence` |
+
+### 4 `menu_universal.py`
+
+### Cambiado
+
+#### 1. `init_tab_traducir`: contenedor de tamaño fijo
+
+Se agregó `pack_propagate(False)` a `video_display_frame` para que el contenedor no cambie de tamaño según la imagen.
+
+```python
+# Área de Video Central
+self.video_display_frame = tk.Frame(frame, bg="#2D3436")
+self.video_display_frame.pack(fill=tk.BOTH, expand=True)
+self.video_display_frame.pack_propagate(False)   # <-- nuevo
+
+self.translator_video_label = tk.Label(
+    self.video_display_frame,
+    text="Presione 'Iniciar Traducción en Vivo' para abrir la cámara",
+    font=("Segoe UI", 14),
+    bg="#2D3436",
+    fg="#DFE6E9"
+)
+self.translator_video_label.pack(fill=tk.BOTH, expand=True)
+```
+
+#### 2. `_update_translation_ui_frame`: escalado al encuadre
+
+Ahora cada frame se escala al espacio disponible manteniendo la proporción (modo "contain"). Usa `INTER_AREA` al reducir e `INTER_LINEAR` al ampliar. El refresco pasó de 16 ms a 33 ms (~30 FPS), porque la cámara no entrega más de eso.
+
+```python
+def _update_translation_ui_frame(self):
+    if not self.is_translating:
+        return
+
+    with self.translation_lock:
+        frame = self.latest_translator_frame.copy() if self.latest_translator_frame is not None else None
+
+    if frame is not None:
+        box_w = self.video_display_frame.winfo_width()
+        box_h = self.video_display_frame.winfo_height()
+
+        if box_w > 10 and box_h > 10:
+            h, w = frame.shape[:2]
+            scale = min(box_w / w, box_h / h)          # "contain": cabe completo, sin deformar
+            new_w = max(1, int(w * scale))
+            new_h = max(1, int(h * scale))
+            if (new_w, new_h) != (w, h):
+                interp = cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR
+                frame = cv2.resize(frame, (new_w, new_h), interpolation=interp)
+
+        img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        imgtk = ImageTk.PhotoImage(image=img)
+        self.translator_video_label.imgtk = imgtk
+        self.translator_video_label.config(image=imgtk, text="")
+
+    self.root.after(33, self._update_translation_ui_frame)   # ~30 FPS
+```

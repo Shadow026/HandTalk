@@ -2127,6 +2127,7 @@ class UniversalMenuApp:
         # Área de Video Central
         self.video_display_frame = tk.Frame(frame, bg="#2D3436")
         self.video_display_frame.pack(fill=tk.BOTH, expand=True)
+        self.video_display_frame.pack_propagate(False) 
 
         self.translator_video_label = tk.Label(
             self.video_display_frame,
@@ -2325,14 +2326,24 @@ class UniversalMenuApp:
             frame = self.latest_translator_frame.copy() if self.latest_translator_frame is not None else None
 
         if frame is not None:
-            # Escalar imagen para ajustarse
-            img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            img = Image.fromarray(img)
+            box_w = self.video_display_frame.winfo_width()
+            box_h = self.video_display_frame.winfo_height()
+
+            if box_w > 10 and box_h > 10:
+                h, w = frame.shape[:2]
+                scale = min(box_w / w, box_h / h)          # "contain": cabe completo, sin deformar
+                new_w = max(1, int(w * scale))
+                new_h = max(1, int(h * scale))
+                if (new_w, new_h) != (w, h):
+                    interp = cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR
+                    frame = cv2.resize(frame, (new_w, new_h), interpolation=interp)
+
+            img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
             imgtk = ImageTk.PhotoImage(image=img)
             self.translator_video_label.imgtk = imgtk
             self.translator_video_label.config(image=imgtk, text="")
 
-        self.root.after(16, self._update_translation_ui_frame)
+        self.root.after(33, self._update_translation_ui_frame)   # ~30 FPS, 16 ms es innecesario
 
     # =========================================================================
     # VENTANA MODAL DEL VISOR WEB (QR, PIN Y ENLACE LOCAL)
