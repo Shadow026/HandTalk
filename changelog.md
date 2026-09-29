@@ -1,5 +1,58 @@
 # Changelog — Traductor de señas personalizado
 
+---
+
+## Integración de Cámara Virtual Avanzada — 2026-09-29
+
+### Resumen
+
+Portado el ecosistema completo de Cámara Virtual desde la rama estabilizada `handtalk_visor/` hacia la versión principal. Esta integración eleva la funcionalidad de videollamadas (Google Meet, Microsoft Teams, Zoom) a nivel de producción sin afectar las funcionalidades de Fase 3-4 (gestos dinámicos, dos manos, paquetes, TTS).
+
+### Cambios en `inicio/virtual_cam.py` (Reemplazo completo: 381 → 561 líneas)
+
+- **Resolución migrada de 640×480 (4:3 SD) a 1280×720 (16:9 HD)** — formato nativo de Teams, Meet y Zoom.
+- **Arquitectura de hilos rediseñada:** `send_frame()` ya no bloquea el hilo de inferencia (~33ms). Un worker asíncrono dedicado (`HandTalk-VirtualCamWorker`) transmite a 30 FPS exactos independientemente de la velocidad de MediaPipe.
+- **Doble cerrojo desacoplado:** `_state_lock` para ciclo de vida y `_frame_lock` para buffer atómico de cuadros (elimina contención).
+- **Recorte central inteligente (`_fit_frame_to_target`):** Adapta cámaras 4:3 a salida 16:9 sin deformar manos ni rostro.
+- **Safe Area para videollamadas:** Margen inferior dinámico `max(85, h*0.13)` ≈ 95px en 720p para evitar que barras de Teams/Meet tapen los subtítulos.
+- **Compensación de espejo (`mirror_flip`):** Invierte el video preservando la legibilidad del texto (para vista previa de Zoom).
+- **Posición de banner configurable:** `bottom_safe` (por defecto) o `top`.
+- **Badge de confirmación:** `✓ CONFIRMADO (XX%)` en verde esmeralda con porcentaje de certeza.
+- **Fade-out dinámico:** Transición alfa en los últimos 0.7s (antes desaparecía abruptamente).
+- **Persistencia de señal:** Si la IA se retrasa, el worker repite el último frame enviado para evitar pantallas negras.
+- **Driver Windows principal: Unity Capture (~200 KB)** con fallback automático a OBS Virtual Camera.
+- **Context Manager (`__enter__` / `__exit__`)** para uso con `with`.
+
+### Cambios en `inicio/menu_universal.py` (6 ediciones quirúrgicas)
+
+- **3 nuevas variables de estado:** `vcam_mirror`, `vcam_clean`, `vcam_pos_top` (BooleanVar).
+- **3 nuevos checkbuttons en pestaña Traducir:** "Espejo Zoom", "Video Limpio (Sin Puntos)", "Subtítulos Arriba".
+- **Instanciación actualizada:** VirtualCamManager a HD 1280×720 con `mirror_flip`, `banner_position` y `auto_start=True`.
+- **🐛 Bug corregido:** `on_word_confirmed_event` ahora notifica a la cámara virtual con `on_translation_confirmed(word, confidence)`. Antes, los subtítulos nunca aparecían en Meet/Teams.
+- **🐛 Bug corregido:** `stop_live_translation` ahora detiene `vcam_manager.stop()` y libera el dispositivo virtual. Antes quedaba como resource leak.
+- **Modo Video Limpio:** Envía `frame` original sin landmarks de MediaPipe cuando el usuario activa "Video Limpio (Sin Puntos)".
+
+### Nuevos archivos: `drivers/unitycapture/`
+
+- `UnityCaptureFilter64.dll` y `UnityCaptureFilter32.dll` — Filtros DirectShow para Windows (~200 KB).
+- `Install.bat` y `Uninstall.bat` — Scripts de registro/desregistro COM con `regsvr32`.
+- Fuente: [schellingb/UnityCapture](https://github.com/schellingb/UnityCapture) (Licencia MIT).
+
+### Cambios en `install.sh` (Linux)
+
+- Instalación explícita de cabeceras de kernel: `linux-headers-$(uname -r)` (Debian/Ubuntu), `linux-headers` (Arch), `kernel-devel kernel-headers` (Fedora) con fallback seguro.
+- Validación mejorada en 3 niveles: existencia de `/dev/video10` → `modinfo` → degradación suave.
+
+### Cambios en `install.ps1` (Windows)
+
+- `Test-VirtualCamDriver` prioriza Unity Capture sobre OBS; detección en 3 ramas CLSID (`HKLM`, `WOW6432Node`, `HKCU`).
+- Nueva función `Install-UnityCaptureDriver`: descarga, elevación UAC y registro automático.
+- Nueva función `Uninstall-UnityCaptureDriver`: desregistro limpio de filtros DirectShow.
+- Menú expandido de 4 a 5 opciones con submenú `[3] Gestionar Driver Cámara Virtual`.
+- Desinstalación total ahora limpia los filtros DirectShow.
+
+---
+
 Fecha: 2026-09-28
 
 Este changelog cubre dos archivos:

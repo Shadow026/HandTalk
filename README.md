@@ -126,10 +126,35 @@ HandTalk permite transmitir la traducción a cualquier dispositivo (celular, tab
 > simplemente escribe en tu terminal: handtalk-visor
 ---
 
+## 🎥 Cámara Virtual para Videollamadas (Google Meet, Teams, Zoom)
+
+HandTalk puede emitir tu video con subtítulos de traducción en tiempo real como una **cámara virtual del sistema operativo**, permitiendo que tus interlocutores en videollamadas vean los subtítulos directamente sin instalar nada adicional.
+
+### Resolución y formato
+- **1280×720 (16:9 HD)** — formato nativo de Teams, Meet y Zoom.
+- Recorte central inteligente para cámaras web 4:3 sin deformar la imagen.
+
+### Controles en el Menú Universal (Pestaña "Traducir")
+| Control | Función |
+|:---|:---|
+| ☑ **Cámara Virtual** | Activa/desactiva la transmisión al dispositivo virtual |
+| ☐ **Espejo Zoom** | Compensa el reflejo horizontal de Zoom/Meet en la vista previa |
+| ☐ **Video Limpio (Sin Puntos)** | Oculta los landmarks de MediaPipe en la transmisión (para reuniones profesionales) |
+| ☐ **Subtítulos Arriba** | Mueve el banner de subtítulos a la parte superior (evita que los controles de Meet/Teams lo tapen) |
+
+### Requisitos del driver
+- **Linux:** `v4l2loopback` (se instala automáticamente con `./install.sh`). Dispositivo: `/dev/video10`.
+- **Windows:** **Unity Capture** (~200 KB, incluido en `drivers/unitycapture/`). Se instala/registra con `.\install.ps1` opción `[3]`. También funciona con OBS Virtual Camera como alternativa.
+
+> **Degradación suave:** Si el driver de cámara virtual no está instalado, HandTalk funciona con normalidad — simplemente no emitirá al dispositivo virtual.
+
+---
+
 
 
 ## 📂 Estructura de Carpetas
 *   `inicio/`: Contiene todo el núcleo funcional del proyecto.
+*   `drivers/unitycapture/`: Filtros DirectShow de Unity Capture para Windows (cámara virtual ligera ~200 KB).
 *   `custom_dataset/`: (Se crea automáticamente) Guarda los vectores de señas en formato JSON.
 *   `models/`: (Se crea automáticamente) Almacena el modelo entrenado (`.pkl`).
 *   `Documentacion/`: Planes de trabajo y guion técnico.
