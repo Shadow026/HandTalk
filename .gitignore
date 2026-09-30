@@ -45,3 +45,8 @@ models/backup_*/
 *.htk
 handtalk_pack_*.zip
 prueba_pack.zip
+
+# Compilacion portable 
+build
+dist
+MakeSign.spec
