@@ -24,3 +24,6 @@ pyvirtualcam>=0.11.0
 pyttsx3>=2.90
 edge-tts>=0.10.0
 playsound==1.2.2
+
+# Compilacion portable
+pyinstaller==6.22.3

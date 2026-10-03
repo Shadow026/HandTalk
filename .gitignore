@@ -46,4 +46,9 @@ models/backup_*/
 handtalk_pack_*.zip
 prueba_pack.zip
 
+# Compilacion portable 
+build
+dist
+MakeSign.spec
+
 #mambo
