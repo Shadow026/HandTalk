@@ -3,6 +3,11 @@ EVENTOS.md
 README.md
 STATUS.md
 changelog.md
+drivers/unitycapture/Install.bat
+drivers/unitycapture/README.md
+drivers/unitycapture/Uninstall.bat
+drivers/unitycapture/UnityCaptureFilter32.dll
+drivers/unitycapture/UnityCaptureFilter64.dll
 index.html
 inicio/camera_utils.py
 inicio/dataset_manager.py

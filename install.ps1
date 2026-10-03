@@ -193,10 +193,11 @@ function Show-MainMenu {
     Write-BoxRow "MENÚ PRINCIPAL DE GESTIÓN (WINDOWS)" "center" "White"
     Write-BoxSep
     Write-BoxRow "" "center" "White"
-    Write-BoxRow "[1]  Instalación Completa  (Entorno + Dependencias + Atajos)" "left" "Green"
+    Write-BoxRow "[1]  Instalación Completa  (Entorno + Dependencias + Atajos + VCam)" "left" "Green"
     Write-BoxRow "[2]  Actualizar Dependencias  (Librerías nuevas en venv)" "left" "Cyan"
-    Write-BoxRow "[3]  Desinstalación Total  (Eliminar venv y atajos CLI)" "left" "Yellow"
-    Write-BoxRow "[4]  Salir" "left" "Red"
+    Write-BoxRow "[3]  Gestionar Driver Cámara Virtual  (Unity Capture ~200 KB)" "left" "Yellow"
+    Write-BoxRow "[4]  Desinstalación Total  (Eliminar venv, driver y atajos)" "left" "DarkYellow"
+    Write-BoxRow "[5]  Salir" "left" "Red"
     Write-BoxRow "" "center" "White"
     Write-BoxBottom
     Write-Centered ""
@@ -596,22 +597,41 @@ function Remove-CliShortcuts {
 function Test-VirtualCamDriver {
     $driverFound = $false
     $driverName = ""
+    $driverType = "none"
 
-    # 1. Comprobar CLSID comunes de OBS Virtual Camera en Registro DirectShow
-    $clsidPaths = @(
-        "HKLM:\SOFTWARE\Classes\CLSID\{27B05C2D-93DC-474A-A6DA-7B4C1A8BE8A7}",
-        "HKLM:\SOFTWARE\WOW6432Node\Classes\CLSID\{27B05C2D-93DC-474A-A6DA-7B4C1A8BE8A7}",
-        "HKCU:\SOFTWARE\Classes\CLSID\{27B05C2D-93DC-474A-A6DA-7B4C1A8BE8A7}"
+    # 1. Comprobar UnityCaptureFilter en Registro DirectShow (Prioridad Recomendada - 200 KB)
+    $unityClsidPaths = @(
+        "HKLM:\SOFTWARE\Classes\CLSID\{8E1DA6E1-4899-4A73-B561-BD5A760EB3B8}",
+        "HKLM:\SOFTWARE\WOW6432Node\Classes\CLSID\{8E1DA6E1-4899-4A73-B561-BD5A760EB3B8}",
+        "HKCU:\SOFTWARE\Classes\CLSID\{8E1DA6E1-4899-4A73-B561-BD5A760EB3B8}"
     )
-    foreach ($p in $clsidPaths) {
+    foreach ($p in $unityClsidPaths) {
         if (Test-Path $p) {
             $driverFound = $true
-            $driverName = "OBS Virtual Camera (Registro DirectShow)"
+            $driverName = "Unity Capture (DirectShow Filter)"
+            $driverType = "unitycapture"
             break
         }
     }
 
-    # 2. Comprobar archivos DLL en ubicaciones estándar de OBS Studio
+    # 2. Comprobar CLSID comunes de OBS Virtual Camera en Registro DirectShow (Fallback)
+    if (-not $driverFound) {
+        $obsClsidPaths = @(
+            "HKLM:\SOFTWARE\Classes\CLSID\{27B05C2D-93DC-474A-A6DA-7B4C1A8BE8A7}",
+            "HKLM:\SOFTWARE\WOW6432Node\Classes\CLSID\{27B05C2D-93DC-474A-A6DA-7B4C1A8BE8A7}",
+            "HKCU:\SOFTWARE\Classes\CLSID\{27B05C2D-93DC-474A-A6DA-7B4C1A8BE8A7}"
+        )
+        foreach ($p in $obsClsidPaths) {
+            if (Test-Path $p) {
+                $driverFound = $true
+                $driverName = "OBS Virtual Camera (Registro DirectShow)"
+                $driverType = "obs"
+                break
+            }
+        }
+    }
+
+    # 3. Comprobar archivos DLL en ubicaciones estándar de OBS Studio
     if (-not $driverFound) {
         $dllCandidates = @(
             "$env:ProgramFiles\obs-studio\data\obs-plugins\win-dshow\obs-virtualcam-module64.dll",
@@ -622,24 +642,110 @@ function Test-VirtualCamDriver {
             if (Test-Path $cand) {
                 $driverFound = $true
                 $driverName = "OBS Virtual Camera ($cand)"
+                $driverType = "obs"
                 break
             }
         }
     }
 
-    # 3. Comprobar UnityCaptureFilter
-    if (-not $driverFound) {
-        $unityClsid = "HKLM:\SOFTWARE\Classes\CLSID\{8E1DA6E1-4899-4A73-B561-BD5A760EB3B8}"
-        if (Test-Path $unityClsid) {
-            $driverFound = $true
-            $driverName = "Unity Capture Filter"
+    return @{
+        Found = $driverFound
+        Name  = $driverName
+        Type  = $driverType
+    }
+}
+
+function Install-UnityCaptureDriver {
+    param([switch]$Silent)
+
+    $driversDir = Join-Path $Script:ProjectRoot "drivers\unitycapture"
+    $dll64 = Join-Path $driversDir "UnityCaptureFilter64.dll"
+    $dll32 = Join-Path $driversDir "UnityCaptureFilter32.dll"
+
+    # Verificar / descargar si faltan las DLLs en drivers\unitycapture
+    if (-not (Test-Path $dll64) -or -not (Test-Path $dll32)) {
+        if (-not (Test-Path $driversDir)) {
+            New-Item -Path $driversDir -ItemType Directory -Force | Out-Null
+        }
+        if (-not $Silent) {
+            Write-Centered "      $($Script:ChInf) Descargando binarios ligeros de Unity Capture..." "Cyan"
+        }
+        try {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            if (-not (Test-Path $dll64)) {
+                Invoke-WebRequest -Uri "https://raw.githubusercontent.com/schellingb/UnityCapture/master/Install/UnityCaptureFilter64.dll" -OutFile $dll64 -UseBasicParsing
+            }
+            if (-not (Test-Path $dll32)) {
+                Invoke-WebRequest -Uri "https://raw.githubusercontent.com/schellingb/UnityCapture/master/Install/UnityCaptureFilter32.dll" -OutFile $dll32 -UseBasicParsing
+            }
+        } catch {
+            Write-Centered "      $($Script:ChErr) No se pudieron obtener las DLLs de Unity Capture: $_" "Red"
+            return $false
         }
     }
 
-    return @{
-        Found = $driverFound
-        Name = $driverName
+    # Registro de filtros con regsvr32 (requiere permisos de Administrador)
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin) {
+        Write-Centered "      $($Script:ChWrn) Se requieren permisos de Administrador para registrar el filtro DirectShow." "Yellow"
+        try {
+            $d64 = $dll64 -replace "'", "''"
+            $d32 = $dll32 -replace "'", "''"
+            $cmd = "if (Test-Path '$d64') { Start-Process regsvr32.exe -ArgumentList '/s', '$d64' -Wait }; if (Test-Path '$d32') { Start-Process regsvr32.exe -ArgumentList '/s', '$d32' -Wait }"
+            Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"$cmd`"" -Verb RunAs -Wait
+        } catch {
+            Write-Centered "      $($Script:ChErr) No se pudo solicitar elevación automática UAC." "Red"
+            Write-Centered "      Ejecute manualmente como Administrador: .\drivers\unitycapture\Install.bat" "Yellow"
+            return $false
+        }
+    } else {
+        if (Test-Path $dll64) {
+            Start-Process regsvr32.exe -ArgumentList "/s `"$dll64`"" -Wait
+        }
+        if (Test-Path $dll32) {
+            Start-Process regsvr32.exe -ArgumentList "/s `"$dll32`"" -Wait
+        }
     }
+
+    # Verificar si el registro fue exitoso
+    $test = Test-VirtualCamDriver
+    if ($test.Found -and $test.Type -eq "unitycapture") {
+        Write-Centered "      $($Script:ChOk) Driver Unity Capture registrado exitosamente en Windows." "Green"
+        Write-Centered "      El dispositivo aparecerá como 'Unity Video Capture' en Zoom/Meet/Teams." "DarkGray"
+        return $true
+    } else {
+        Write-Centered "      $($Script:ChWrn) El registro finalizó pero el sistema aún no detecta el CLSID." "Yellow"
+        Write-Centered "      Pruebe ejecutar manualmente con clic derecho: .\drivers\unitycapture\Install.bat" "DarkGray"
+        return $false
+    }
+}
+
+function Uninstall-UnityCaptureDriver {
+    $driversDir = Join-Path $Script:ProjectRoot "drivers\unitycapture"
+    $dll64 = Join-Path $driversDir "UnityCaptureFilter64.dll"
+    $dll32 = Join-Path $driversDir "UnityCaptureFilter32.dll"
+
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin) {
+        try {
+            $d64 = $dll64 -replace "'", "''"
+            $d32 = $dll32 -replace "'", "''"
+            $cmd = "if (Test-Path '$d64') { Start-Process regsvr32.exe -ArgumentList '/u', '/s', '$d64' -Wait }; if (Test-Path '$d32') { Start-Process regsvr32.exe -ArgumentList '/u', '/s', '$d32' -Wait }"
+            Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"$cmd`"" -Verb RunAs -Wait
+        } catch {
+            Write-Centered "      $($Script:ChWrn) No se pudo desregistrar el driver (requiere permisos de Administrador)." "Yellow"
+            return $false
+        }
+    } else {
+        if (Test-Path $dll64) {
+            Start-Process regsvr32.exe -ArgumentList "/u /s `"$dll64`"" -Wait
+        }
+        if (Test-Path $dll32) {
+            Start-Process regsvr32.exe -ArgumentList "/u /s `"$dll32`"" -Wait
+        }
+    }
+    Write-Centered "      $($Script:ChOk) Driver Unity Capture desregistrado del sistema." "Green"
+    return $true
 }
 
 function Add-HandTalkFirewallRule {
@@ -771,14 +877,19 @@ function Start-Installation {
     Write-Centered "      $($Script:ChOk) Atajos creados (.bat) y agregados al PATH del usuario." "Green"
     Write-Centered ""
 
-    # Auditoría de Driver de Cámara Virtual y Regla de Firewall para Visor Web
+    # Auditoría e Instalación de Driver de Cámara Virtual y Regla de Firewall para Visor Web
     Write-Centered "Verificando soporte de Cámara Virtual y Red..." "Cyan"
     $vcam = Test-VirtualCamDriver
     if ($vcam.Found) {
         Write-Centered "      $($Script:ChOk) Driver de Cámara Virtual detectado: $($vcam.Name)" "Green"
     } else {
-        Write-Centered "      $($Script:ChWrn) Driver DirectShow de OBS Virtual Cam no detectado." "Yellow"
-        Write-Centered "      Aviso: La cámara virtual en Meet/Zoom requiere instalar OBS Studio." "DarkGray"
+        Write-Centered "      $($Script:ChWrn) Driver de Cámara Virtual no detectado." "Yellow"
+        Write-Centered "      Configurando driver ligero Unity Capture (~200 KB)..." "Cyan"
+        $installed = Install-UnityCaptureDriver
+        if (-not $installed) {
+            Write-Centered "      Aviso: Puede registrarlo manualmente como Admin: .\drivers\unitycapture\Install.bat" "Yellow"
+            Write-Centered "      (Opcional) Si prefiere OBS Studio: winget install --id OBSProject.OBSStudio --silent" "DarkGray"
+        }
     }
 
     Add-HandTalkFirewallRule
@@ -987,6 +1098,15 @@ function Start-Uninstallation {
     Write-Centered "      $($Script:ChOk) Registro de PATH actualizado." "Green"
     Write-Centered ""
 
+    Write-Centered "[4/4] Comprobando driver de Cámara Virtual Unity Capture..." "Cyan"
+    $vtest = Test-VirtualCamDriver
+    if ($vtest.Found -and $vtest.Type -eq "unitycapture") {
+        Uninstall-UnityCaptureDriver | Out-Null
+    } else {
+        Write-Centered "      $($Script:ChInf) No se requiere desregistro de driver." "DarkGray"
+    }
+    Write-Centered ""
+
     Write-BoxTop
     Write-BoxRow "DESINSTALACION COMPLETADA" "center" "Green"
     Write-BoxSep
@@ -997,15 +1117,73 @@ function Start-Uninstallation {
     Wait-Enter
 }
 
-# --- Bucle Principal del Menú (4 Opciones) ---
+# --- Acción 3: Gestión de Driver de Cámara Virtual ---
+
+function Manage-VirtualCamDriverMenu {
+    Show-HeaderBanner
+    Write-BoxTop
+    Write-BoxRow "GESTION DE DRIVER DE CAMARA VIRTUAL" "center" "White"
+    Write-BoxSep
+    Write-BoxRow "" "center" "White"
+    
+    $vcam = Test-VirtualCamDriver
+    if ($vcam.Found) {
+        Write-BoxRow "Estado actual: INSTALADO" "center" "Green"
+        Write-BoxRow "Dispositivo: $($vcam.Name)" "center" "Cyan"
+    } else {
+        Write-BoxRow "Estado actual: NO DETECTADO" "center" "Yellow"
+        Write-BoxRow "Se recomienda registrar Unity Capture (~200 KB) para videollamadas." "center" "DarkGray"
+    }
+    Write-BoxRow "" "center" "White"
+    Write-BoxSep
+    Write-BoxRow "[1]  Instalar / Registrar Unity Capture  (~200 KB)" "left" "Green"
+    Write-BoxRow "[2]  Desregistrar / Desinstalar Unity Capture" "left" "Yellow"
+    Write-BoxRow "[3]  Volver al Menú Principal" "left" "Cyan"
+    Write-BoxRow "" "center" "White"
+    Write-BoxBottom
+    Write-Centered ""
+
+    Prompt-Centered "Seleccione una opción [1-3]: " "Cyan"
+    try {
+        $c = [System.Console]::ReadLine()
+    } catch {
+        $c = Read-Host
+    }
+    if ($null -eq $c) { return }
+
+    switch ($c.Trim()) {
+        "1" {
+            Write-Centered ""
+            Write-Centered "Registrando driver Unity Capture..." "Cyan"
+            Install-UnityCaptureDriver
+            Wait-Enter
+        }
+        "2" {
+            Write-Centered ""
+            Write-Centered "Desregistrando driver Unity Capture..." "Yellow"
+            Uninstall-UnityCaptureDriver
+            Wait-Enter
+        }
+        default { return }
+    }
+}
+
+# --- Bucle Principal del Menú (5 Opciones) ---
 
 function Main {
     do {
         Show-HeaderBanner
         Show-MainMenu
-        Prompt-Centered "Seleccione una opción [1-4]: " "Cyan"
-        $choice = [System.Console]::ReadLine()
-        if ($null -eq $choice) { $choice = "" }
+        Prompt-Centered "Seleccione una opción [1-5]: " "Cyan"
+        try {
+            $choice = [System.Console]::ReadLine()
+        } catch {
+            $choice = Read-Host
+        }
+        if ($null -eq $choice) {
+            Write-Centered ""
+            return
+        }
 
         switch ($choice.Trim()) {
             "1" {
@@ -1015,9 +1193,12 @@ function Main {
                 Update-Dependencies
             }
             "3" {
-                Start-Uninstallation
+                Manage-VirtualCamDriverMenu
             }
             "4" {
+                Start-Uninstallation
+            }
+            "5" {
                 Show-HeaderBanner
                 Write-BoxTop
                 Write-BoxRow "¡GRACIAS POR USAR HANDTALK!" "center" "White"
@@ -1029,7 +1210,7 @@ function Main {
             }
             default {
                 Write-Centered ""
-                Write-Centered "Opción no válida. Ingrese 1, 2, 3 o 4." "Red"
+                Write-Centered "Opción no válida. Ingrese 1, 2, 3, 4 o 5." "Red"
                 Start-Sleep -Milliseconds 1200
             }
         }
