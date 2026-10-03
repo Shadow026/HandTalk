@@ -34,13 +34,14 @@ $dist = "dist\MakeSign"
 
 if ($modo -eq "P") {
     # Copia de datos a raiz, donde web_server.py los busca con __file__
-    foreach ($carpeta in @("models", "custom_dataset", "sketches", "assets")) {
+    foreach ($carpeta in @("models", "custom_dataset", "sketches", "assets", "drivers")) {
         Copy-Item $carpeta -Destination "$dist" -Recurse -Force
     }
     Write-Host "Listo (pruebas): datos copiados a $dist" -ForegroundColor Yellow
 } else {
-    # Copia unicamente la carpeta assets para el icono necesario
+    # Copia unicamente la carpeta assets y drivers, que son necesarias para la ejecución limpia
     Copy-Item assets -Destination $dist -Recurse -Force
+    Copy-Item drivers -Destination $dist -Recurse -Force
 
     Write-Host "Listo (limpio): $dist\MakeSign.exe" -ForegroundColor Green
 }
